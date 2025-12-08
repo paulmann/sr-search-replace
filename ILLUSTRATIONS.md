@@ -4,13 +4,13 @@ Visual guides and diagrams to understand the Search and Replace utility.
 
 ## 🎯 Workflow Overview
 
-![Search & Replace Workflow](sr-workflow.png)
+![Search & Replace Workflow](MEDIA/sr-workflow.png)
 
 *Main workflow illustration showing the search and replace process with session-based rollback capabilities. The diagram demonstrates how files are discovered, processed, backed up, and can be restored in one command.*
 
 ## 🏗️ System Architecture
 
-![System Architecture](sr-architecture.png)
+![System Architecture](MEDIA/sr-architecture.png)
 
 *Technical architecture diagram showing the four main components:*
 - **Session Management** - Unique IDs and timestamp tracking
@@ -20,7 +20,7 @@ Visual guides and diagrams to understand the Search and Replace utility.
 
 ## 🔄 Before/After Transformation
 
-![Before and After](sr-before-after.png)
+![Before and After](MEDIA/sr-before-after.png)
 
 *Visual comparison showing file transformations:*
 - Left side: Original files with outdated patterns (highlighted in red)
@@ -30,7 +30,7 @@ Visual guides and diagrams to understand the Search and Replace utility.
 
 ## 🛡️ Safety & Rollback Timeline
 
-![Safety Timeline](sr-safety-timeline.png)
+![Safety Timeline](MEDIA/sr-safety-timeline.png)
 
 *Timeline visualization demonstrating:*
 - Session checkpoints with timestamps and IDs
@@ -42,7 +42,7 @@ Visual guides and diagrams to understand the Search and Replace utility.
 
 ## 💻 Terminal Usage Example
 
-![Terminal Example](sr-terminal-example.png)
+![Terminal Example](MEDIA/sr-terminal-example.png)
 
 *Realistic terminal window showing:*
 - Color-coded output with [INFO], [SUCCESS], [WARNING], [ERROR] messages
@@ -54,7 +54,7 @@ Visual guides and diagrams to understand the Search and Replace utility.
 
 ## 📊 Feature Comparison
 
-![Comparison Chart](sr-comparison.png)
+![Comparison Chart](MEDIA/sr-comparison.png)
 
 *Detailed feature comparison between:*
 1. **Manual Text Replacement** - Risky, error-prone, no backup
@@ -72,7 +72,7 @@ Features evaluated:
 
 ## 🎨 Badge & Icons
 
-![Tool Badge](sr-badge.png)
+![Tool Badge](MEDIA/sr-badge.png)
 
 *Professional badge-style icon representing the Search and Replace utility with modern, minimalist design.*
 
