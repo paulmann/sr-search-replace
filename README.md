@@ -1850,10 +1850,12 @@ SOFTWARE.
 
 ### Documentation Resources
 
-- **📖 [Wiki Documentation](https://github.com/paulmann/sr-search-replace/wiki)** - Complete user guide
-- **📘 [API Reference](https://github.com/paulmann/sr-search-replace/wiki/API-Reference)** - Detailed option reference
-- **🎥 [Video Tutorials](https://github.com/paulmann/sr-search-replace/wiki/Video-Tutorials)** - Step-by-step guides
-- **📚 [Recipes & Examples](https://github.com/paulmann/sr-search-replace/wiki/Recipes)** - Common use cases
+- 📖 [Wiki Documentation](https://github.com/paulmann/sr-search-replace/wiki) - Complete user guide
+- 📘 [Command Reference](https://github.com/paulmann/sr-search-replace/wiki/Command-Reference) - Detailed option reference
+- 🚀 [Quick Start Tutorial](https://github.com/paulmann/sr-search-replace/wiki/Quick-Start-Tutorial) - Step-by-step guide
+- 📚 [Installation Guide](https://github.com/paulmann/sr-search-replace/wiki/Installation-Guide) - Multi-platform installation
+- 💡 [Basic Examples](https://github.com/paulmann/sr-search-replace/wiki/Basic-Examples) - Common use cases
+
 
 ### Community Support
 
@@ -1864,10 +1866,11 @@ SOFTWARE.
 
 ### Contributing to Support
 
-- **🌍 [Translate Documentation](https://github.com/paulmann/sr-search-replace/wiki/Translation)** - Help translate to other languages
-- **✍️ [Write Tutorials](https://github.com/paulmann/sr-search-replace/wiki/Contribute-Tutorials)** - Share your knowledge
-- **🐛 [Triage Issues](https://github.com/paulmann/sr-search-replace/wiki/Issue-Triage)** - Help categorize and prioritize issues
+- **🌍 [Community Discussions](https://github.com/paulmann/sr-search-replace/discussions)** - Help translate and share knowledge
+- **✍️ [Contributing Guide](https://github.com/paulmann/sr-search-replace/wiki/Contributing-Guide)** - How to contribute code
+- **🐛 [Troubleshooting](https://github.com/paulmann/sr-search-replace/wiki/Troubleshooting)** - Common issues and solutions
 - **🔍 [Code Review](https://github.com/paulmann/sr-search-replace/pulls)** - Review pull requests
+
 
 ## FAQ
 
