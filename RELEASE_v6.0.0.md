@@ -1,6 +1,6 @@
 # Release Notes: Search and Replace (sr) v6.0.0
 
-**Release Date**: December 7, 2024
+**Release Date**: December 7, 2025
 **Version**: 6.0.0
 **Status**: Stable Release
 
