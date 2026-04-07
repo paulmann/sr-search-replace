@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Search and Replace (sr) - Universal text replacement tool
 # Version: 6.1.0
