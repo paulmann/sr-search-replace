@@ -1,0 +1,17 @@
+# ── Development / CI ──────────────────────────────────────────────────────────
+.github/
+docs/
+MEDIA/
+
+# ── Release notes (keep CHANGELOG.md, drop individual release files) ──────────
+RELEASE_v*.md
+ILLUSTRATIONS.md
+EXAMPLES.md
+CONTRIBUTING.md
+MEDIA.md
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
