@@ -6,6 +6,8 @@
 [![Linux](https://img.shields.io/badge/linux-compatible-blue.svg)](#system-requirements)
 [![macOS](https://img.shields.io/badge/macos-compatible-blue.svg)](#system-requirements)
 [![Core Tools](https://img.shields.io/badge/dependencies-find/grep/sed-orange.svg)](#prerequisites)
+[![npm version](https://img.shields.io/npm/v/sr-search-replace.svg)](https://www.npmjs.com/package/sr-search-replace)
+[![npm downloads](https://img.shields.io/npm/dm/sr-search-replace.svg)](https://www.npmjs.com/package/sr-search-replace)
 [![GitHub Stars](https://img.shields.io/github/stars/paulmann/sr-search-replace?style=social)](https://github.com/paulmann/sr-search-replace)
 
 > **Enterprise-grade search and replace utility with session-based rollback, multi-layer binary detection, and advanced backup management**
@@ -256,6 +258,58 @@ apk add bash findutils sed grep file coreutils
 ```
 
 ## Installation
+
+### Method 0: npm / npx (Recommended for Node.js Environments)
+
+`sr` is published on the npm registry as
+[**sr-search-replace**](https://www.npmjs.com/package/sr-search-replace) and
+ships with a thin Node.js wrapper that delegates directly to the native Bash
+script — no transpilation, no runtime overhead.
+
+#### Global installation (persistent CLI)
+
+```bash
+npm install -g sr-search-replace
+
+# Verify
+sr --version
+```
+
+After a global install the `sr` command is available system-wide, just like
+any other CLI tool.
+
+#### Project-local installation (recommended for teams)
+
+```bash
+# Add to your project's devDependencies
+npm install --save-dev sr-search-replace
+
+# Run via npx (no global install needed)
+npx sr "*.js" "oldFunction" "newFunction"
+```
+
+Pinning the version in `devDependencies` ensures every team member and every
+CI runner uses the exact same release — no environment drift, no surprises.
+
+#### Zero-install execution via npx
+
+```bash
+# Run directly without any prior install — npm resolves and executes on the fly
+npx sr-search-replace --version
+npx sr-search-replace --dry-run "*.conf" "localhost" "production-host"
+```
+
+#### CI/CD integration example (GitHub Actions)
+
+```yaml
+- name: Bulk replace config values
+  run: npx sr-search-replace "*.env.example" "APP_ENV=local" "APP_ENV=production"
+```
+
+> **Requirements:** Node.js ≥ 14 · Linux or macOS · bash 5.0+  
+> Windows users must run through **WSL2** or **Git Bash**.
+
+---
 
 ### Method 1: Direct Download (Recommended)
 
