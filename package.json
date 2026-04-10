@@ -1,0 +1,61 @@
+{
+  "name": "sr-search-replace",
+  "version": "6.1.0",
+  "description": "Universal search-and-replace CLI for files — recursive processing, multi-layer binary detection, session-based rollback, and backup management.",
+  "keywords": [
+    "search",
+    "replace",
+    "find-replace",
+    "text-processing",
+    "refactoring",
+    "cli",
+    "bash",
+    "shell",
+    "rollback",
+    "backup",
+    "binary-detection",
+    "devtools",
+    "sed",
+    "grep",
+    "bulk-rename",
+    "code-refactoring",
+    "enterprise",
+    "sysadmin"
+  ],
+  "author": {
+    "name": "Mikhail Deynekin",
+    "email": "mid1977@gmail.com",
+    "url": "https://deynekin.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/paulmann/sr-search-replace#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paulmann/sr-search-replace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/paulmann/sr-search-replace/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "bin": {
+    "sr": "./bin/sr"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "sr.sh",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false
+}

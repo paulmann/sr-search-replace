@@ -1,0 +1,37 @@
+#!/usr/bin/env node
+// =============================================================================
+// sr-search-replace — npm CLI wrapper
+// Author : Mikhail Deynekin <mid1977@gmail.com> | https://deynekin.com
+// License: MIT
+// =============================================================================
+'use strict';
+
+const { execFileSync } = require('child_process');
+const path = require('path');
+const fs   = require('fs');
+const os   = require('os');
+
+if (os.platform() === 'win32') {
+  console.error(
+    '[sr] Windows is not supported directly. Please use WSL2 or Git Bash.\n' +
+    '     See: https://github.com/paulmann/sr-search-replace#system-requirements'
+  );
+  process.exit(1);
+}
+
+const scriptPath = path.join(__dirname, '..', 'sr.sh');
+
+if (!fs.existsSync(scriptPath)) {
+  console.error('[sr] sr.sh not found at:', scriptPath);
+  console.error('     Try reinstalling: npm install -g sr-search-replace');
+  process.exit(1);
+}
+
+try {
+  execFileSync('bash', [scriptPath, ...process.argv.slice(2)], {
+    stdio : 'inherit',
+    shell : false
+  });
+} catch (err) {
+  process.exit(err.status ?? 1);
+}
