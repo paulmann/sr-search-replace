@@ -48,14 +48,26 @@ Unlike simplistic alternatives like `sed -i` or basic find-replace scripts, `sr`
 - **Predictable Behavior**: Consistent argument parsing and explicit behavior control
 - **Professional Tooling**: Direct parameter passing to core utilities (find/sed/grep)
 - **Cross-Platform**: Compatible with Linux, macOS, and BSD systems
+- **npm Ready**: Install globally or pin as a `devDependency` — one command, zero setup: `npm install -g sr-search-replace`
 - **Comprehensive**: 40+ configuration options with environment variable support
 
 ## Quick Start
 
 ### Installation in 30 Seconds
 
+**Option A — npm (recommended for Node.js / JavaScript projects):**
+
 ```bash
-# Download and install
+# Install globally — the `sr` command becomes available system-wide
+npm install -g sr-search-replace
+
+# Or run on-demand without installing anything
+npx sr-search-replace --version
+```
+
+**Option B — direct download (no Node.js required):**
+
+```bash
 curl -L https://raw.githubusercontent.com/paulmann/sr-search-replace/main/sr.sh -o sr
 chmod +x sr
 sudo mv sr /usr/local/bin/
@@ -259,12 +271,9 @@ apk add bash findutils sed grep file coreutils
 
 ## Installation
 
-### Method 0: npm / npx (Recommended for Node.js Environments)
+### Method 1: npm / npx ⭐ Recommended
 
-`sr` is published on the npm registry as
-[**sr-search-replace**](https://www.npmjs.com/package/sr-search-replace) and
-ships with a thin Node.js wrapper that delegates directly to the native Bash
-script — no transpilation, no runtime overhead.
+`sr` is published on the npm registry as [**sr-search-replace**](https://www.npmjs.com/package/sr-search-replace) and ships with a thin Node.js wrapper that delegates directly to the native Bash script — no transpilation, no runtime overhead.
 
 #### Global installation (persistent CLI)
 
@@ -275,8 +284,7 @@ npm install -g sr-search-replace
 sr --version
 ```
 
-After a global install the `sr` command is available system-wide, just like
-any other CLI tool.
+After a global install the `sr` command is available system-wide, just like any other CLI tool.
 
 #### Project-local installation (recommended for teams)
 
@@ -288,8 +296,7 @@ npm install --save-dev sr-search-replace
 npx sr "*.js" "oldFunction" "newFunction"
 ```
 
-Pinning the version in `devDependencies` ensures every team member and every
-CI runner uses the exact same release — no environment drift, no surprises.
+Pinning the version in `devDependencies` ensures every team member and every CI runner uses the exact same release — no environment drift, no surprises.
 
 #### Zero-install execution via npx
 
@@ -311,7 +318,7 @@ npx sr-search-replace --dry-run "*.conf" "localhost" "production-host"
 
 ---
 
-### Method 1: Direct Download (Recommended)
+### Method 2: Direct Download
 
 ```bash
 # Download latest version
@@ -327,7 +334,7 @@ sudo cp sr /usr/local/bin/
 sr --version
 ```
 
-### Method 2: Git Clone (Development)
+### Method 3: Git Clone (Development)
 
 ```bash
 # Clone repository
@@ -344,7 +351,7 @@ sudo ln -s "$(pwd)/sr.sh" /usr/local/bin/sr
 sr --help
 ```
 
-### Method 3: Package Manager (Advanced)
+### Method 4: Package Manager (Advanced)
 
 ```bash
 # Create installation package (deb/rpm)
@@ -381,10 +388,12 @@ sr --dry-run "*.txt" "test" "TEST" 2>&1 | grep -i "dry-run"
 ### Upgrading from Previous Versions
 
 ```bash
-# Backup existing configuration if any
+# Via npm (if installed via npm)
+npm update -g sr-search-replace
+
+# Via direct download
 cp ~/.sr_config ~/.sr_config.backup 2>/dev/null || true
 
-# Download and replace
 curl -L https://raw.githubusercontent.com/paulmann/sr-search-replace/main/sr.sh -o /tmp/sr_new
 chmod +x /tmp/sr_new
 
@@ -1194,7 +1203,7 @@ sr --verbose "src/**/*.js" "import { Component } from 'react';" "import { Compon
 
 # Fix string formatting
 sr --verbose "src/**/*.js" "' + variable + '" "\`\${variable}\`"
-sr --verbose "src/**/*.js" '\" + variable + \"' "\`\${variable}\`"
+sr --verbose "src/**/*.js" '" + variable + "' "\`\${variable}\`"
 ```
 
 ## Troubleshooting
