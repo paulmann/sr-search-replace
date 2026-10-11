@@ -1,0 +1,65 @@
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+.venv/
+venv/
+env/
+
+# --- tooling caches ----------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# --- npm ---------------------------------------------------------------------
+# npm/app/ and the three metadata files are produced by `npm/scripts/pack_app.js`
+# (`make npm`, and the release workflow).  They are copies of repository-level
+# files, so committing them would only create a second source of truth.
+node_modules/
+npm/app/
+npm/node_modules/
+npm/package-lock.json
+npm/npm-debug.log*
+npm/LICENSE
+npm/README.md
+npm/CHANGELOG.md
+
+# --- sr's own session store (never commit backups) ---------------------------
+.sr/
+.srrc.local
+
+# --- reviewer / agent scratch (machine-local, can be huge) -------------------
+.ragraf/
+preflight/
+.zwork/
+*.log
+
+# --- editors / OS ------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- release scratch ---------------------------------------------------------
+# Build artefacts are ignored, but the generated man page and the committed
+# completion scripts are *checked in* (they are part of the release review).
+/sr.pyz
+/*.sha256
+release/
+!docs/man/sr.1
+!completions/*.bash
+!completions/*.zsh
+!completions/*.fish

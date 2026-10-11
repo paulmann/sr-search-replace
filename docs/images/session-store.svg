@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 470" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" role="img" aria-label="sr session store layout and rollback guarantees">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6472"/>
+    </marker>
+  </defs>
+  <style>
+    .phase { font-weight: 700; fill: #6b7280; font-size: 11px; letter-spacing: 1.2px; }
+    .dir { font-weight: 700; }
+    .note { fill: #4b5563; font-size: 11.5px; }
+    .file { fill: #111827; }
+    .edge { stroke: #5b6472; stroke-width: 1.5; fill: none; marker-end: url(#arr); }
+    .pill { rx: 8; }
+  </style>
+
+  <text x="24" y="30" class="phase">A SESSION IS A SELF-DESCRIBING, VERIFIABLE, REVERSIBLE RECORD OF ONE RUN</text>
+
+  <!-- tree -->
+  <rect x="20" y="48" width="470" height="392" rx="12" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.4"/>
+  <text x="40" y="76" class="dir">&lt;target&gt;/.sr/sessions/20260131T120530Z-9f3a1c/</text>
+
+  <g class="file">
+    <text x="56" y="106">├── manifest.json</text>
+    <text x="56" y="176">├── journal.jsonl</text>
+    <text x="56" y="252">├── files/9f/9f3a1c….dat</text>
+    <text x="56" y="320">├── diffs/src/app.py.diff</text>
+    <text x="56" y="382">└── .lock</text>
+  </g>
+  <g class="note">
+    <text x="72" y="124">schema_version · command · search/replace · totals</text>
+    <text x="72" y="140">per file: sha256 before/after, size, mode, uid/gid</text>
+    <text x="72" y="156">written once, at the end</text>
+
+    <text x="72" y="194">append-only op log, fsync-ed after every file</text>
+    <text x="72" y="210">survives a crash — sr rebuilds the session from it</text>
+    <text x="72" y="226">meta → op → op → … → finish</text>
+
+    <text x="72" y="270">the original bytes, content addressed</text>
+    <text x="72" y="286">identical originals are stored once</text>
+    <text x="72" y="302">re-hashed on read: corruption is detected, not restored</text>
+
+    <text x="72" y="338">unified diff of the change</text>
+    <text x="72" y="354">replayed by  sr diff --session &lt;id&gt;</text>
+
+    <text x="72" y="400">O_CREAT|O_EXCL advisory lock, held for the run</text>
+    <text x="72" y="416">stale locks (owner gone, or past the TTL) are broken</text>
+  </g>
+
+  <!-- guarantees -->
+  <text x="520" y="76" class="phase">WHAT ROLLBACK GUARANTEES</text>
+
+  <g>
+    <rect class="pill" x="520" y="92" width="360" height="62" fill="#ecfeff" stroke="#22d3ee" stroke-width="1.4"/>
+    <text x="536" y="114" class="dir" fill="#155e75">Drift detection</text>
+    <text x="536" y="132" class="note">manifest stores sha256 of each file after the run;</text>
+    <text x="536" y="147" class="note">a file edited since is skipped unless --force.</text>
+  </g>
+
+  <g>
+    <rect class="pill" x="520" y="166" width="360" height="62" fill="#f5f3ff" stroke="#a78bfa" stroke-width="1.4"/>
+    <text x="536" y="188" class="dir" fill="#5b21b6">Path containment</text>
+    <text x="536" y="206" class="note">a restore only ever writes inside the session root —</text>
+    <text x="536" y="221" class="note">even if manifest.json was edited by hand.</text>
+  </g>
+
+  <g>
+    <rect class="pill" x="520" y="240" width="360" height="62" fill="#fff7ed" stroke="#fb923c" stroke-width="1.4"/>
+    <text x="536" y="262" class="dir" fill="#9a3412">Renames undo deepest-first</text>
+    <text x="536" y="280" class="note">journal records from → to pairs and replays them</text>
+    <text x="536" y="295" class="note">in reverse, so a directory cannot block its children.</text>
+  </g>
+
+  <g>
+    <rect class="pill" x="520" y="314" width="360" height="62" fill="#f0fdf4" stroke="#4ade80" stroke-width="1.4"/>
+    <text x="536" y="336" class="dir" fill="#166534">The rollback is reversible</text>
+    <text x="536" y="354" class="note">the pre-rollback bytes are recorded in a new session</text>
+    <text x="536" y="369" class="note">of kind “rollback”, so an erroneous undo is undoable.</text>
+  </g>
+
+  <g>
+    <rect class="pill" x="520" y="388" width="360" height="46" fill="#fef2f2" stroke="#f87171" stroke-width="1.4"/>
+    <text x="536" y="408" class="dir" fill="#991b1b">Retention</text>
+    <text x="536" y="425" class="note">--keep N (default 20) and --keep-age are applied after each run.</text>
+  </g>
+
+  <path class="edge" d="M 490 176 L 518 123"/>
+  <path class="edge" d="M 490 252 L 518 197"/>
+</svg>

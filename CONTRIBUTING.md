@@ -1,524 +1,371 @@
-# Contributing to sr-search-replace
+# Contributing to sr
 
-Thank you for your interest in contributing to **sr-search-replace**! This guide will help you understand our development process and how to make meaningful contributions to the project.
+Thanks for considering a contribution. This document explains how the project is
+put together, what the conventions are, and how to get a change merged quickly.
 
-## Table of Contents
-
-- [Code of Conduct](#code-of-conduct)
-- [How to Contribute](#how-to-contribute)
-- [Development Setup](#development-setup)
-- [Coding Standards](#coding-standards)
-- [Testing Guidelines](#testing-guidelines)
-- [Commit Message Conventions](#commit-message-conventions)
-- [Pull Request Process](#pull-request-process)
-- [Reporting Bugs](#reporting-bugs)
-- [Suggesting Enhancements](#suggesting-enhancements)
-- [Documentation](#documentation)
-
----
-
-## Code of Conduct
-
-This project adheres to a Code of Conduct. By participating, you agree to:
-
-- Be respectful and inclusive of all contributors
-- Provide constructive feedback and criticism
-- Focus on what is best for the community
-- Show empathy towards other community members
-- Report unacceptable behavior to the maintainers
+- [Ground rules](#ground-rules)
+- [Development setup](#development-setup)
+- [Repository layout](#repository-layout)
+- [Adding an option](#adding-an-option)
+- [Adding a command](#adding-a-command)
+- [Testing](#testing)
+- [Style and quality gates](#style-and-quality-gates)
+- [Generated artefacts](#generated-artefacts)
+- [Releasing](#releasing)
+- [What makes a good issue](#what-makes-a-good-issue)
 
 ---
 
-## How to Contribute
+## Ground rules
 
-There are many ways to contribute to sr-search-replace:
-
-### 1. **Report Bugs**
-If you find a bug, please report it by creating an issue. Include:
-- Clear description of the bug
-- Steps to reproduce
-- Expected behavior
-- Actual behavior
-- Your environment (OS, shell version, etc.)
-
-### 2. **Suggest Enhancements**
-We welcome feature suggestions! Please include:
-- Clear use case and motivation
-- Proposed solution (if applicable)
-- Alternative approaches
-- Impact assessment
-
-### 3. **Contribute Code**
-Fix bugs, implement features, or improve performance. See the [Development Setup](#development-setup) section.
-
-### 4. **Improve Documentation**
-Help improve README, wiki, inline comments, or examples.
-
-### 5. **Test**
-Test the tool on different systems and configurations, and report findings.
+1. **No third-party runtime dependencies.** Ever. `sr` is a bulk-edit tool: if
+   it can fail to install, it is worse than no tool at all. Dev extras (pytest,
+   ruff, mypy) are fine and optional; the package itself is standard library
+   only, and `sr doctor` asserts it.
+2. **Python 3.9+ compatible.** CI runs 3.9 → 3.13 on Linux and macOS. Avoid
+   `match`, PEP 604 unions at runtime, and anything newer without a guard.
+3. **The option schema is the single source of truth.** A new flag is declared
+   once, in `sr/options.py`; the parser, config layer, help text, man page and
+   shell completions are all derived from it.
+4. **Nothing is written before the scan completes.** This invariant is what
+   makes `--dry-run` side-effect-free and the confirmation prompt honest. Do not
+   introduce a write into the scan phase.
+5. **Every recoverable failure is an `SrError`** with an exit code and a
+   one-line `hint`. Users should never see a bare traceback unless they asked
+   for one with `SR_DEBUG=1`.
+6. **Tests must be hermetic**: no network, no real `$HOME`, no dependence on the
+   cwd, no optional external tools.
 
 ---
 
-## Development Setup
+## Development setup
 
-### Prerequisites
-
-Before setting up the development environment, ensure you have:
-
-- **Git** (v2.20+)
-- **Bash** (v4.0+)
-- **Unix-like system** (Linux, macOS, or WSL on Windows)
-- Text editor or IDE of your choice (VS Code, Vim, etc.)
-
-### Setup Steps
-
-```bash
-# 1. Fork the repository on GitHub
-# 2. Clone your fork
-git clone https://github.com/YOUR_USERNAME/sr-search-replace.git
+```sh
+git clone https://github.com/paulmann/sr-search-replace
 cd sr-search-replace
-
-# 3. Add upstream remote
-git remote add upstream https://github.com/paulmann/sr-search-replace.git
-
-# 4. Create a feature branch
-git checkout -b feature/your-feature-name
-
-# 5. Make your changes
-# ... edit files ...
-
-# 6. Test your changes
-./sr.sh --help  # Verify basic functionality
-
-# 7. Run the test suite
-bash tests/run_tests.sh
+python3 -m venv .venv && . .venv/bin/activate
+make install-dev        # editable install + pytest/ruff/mypy
+make test               # the full suite (a few seconds)
 ```
 
-### Project Structure
+No install step is needed to run sr from a checkout:
 
+```sh
+./sr-cli find "hello"          # POSIX-sh launcher, finds a suitable python3
+python3 -m sr find "hello"     # equivalent
+make run ARGS="doctor"         # equivalent again
 ```
-sr-search-replace/
-├── sr.sh                    # Main script
-├── tests/                   # Test suite
-│   ├── run_tests.sh        # Test runner
-│   ├── unit/               # Unit tests
-│   └── integration/         # Integration tests
-├── docs/                    # Documentation
-├── CHANGELOG.md             # Version history
-├── README.md                # Project overview
-├── LICENSE                  # MIT License
-└── CONTRIBUTING.md          # This file
+
+Useful targets:
+
+```sh
+make help          # list every target
+make lint          # ruff (falls back to a syntax check when ruff is absent)
+make typecheck     # mypy (skipped when absent)
+make coverage      # pytest + coverage report
+make dist          # build/sr.pyz + build/sr.pyz.sha256
+make dist-check    # build it, then run --version/selftest/help inside it
+make man           # regenerate docs/man/sr.1
+make docs          # regenerate the option tables in README.md and docs/
+make completions   # regenerate completions/sr.{bash,zsh,fish}
+make selftest      # the built-in end-to-end smoke test
+make check         # everything CI runs
+make clean
 ```
 
 ---
 
-## Coding Standards
+## Repository layout
 
-### Bash Style Guide
-
-We follow these conventions for Bash code:
-
-#### 1. **Naming Conventions**
-
-```bash
-# Variables: UPPER_CASE for constants, lower_case for local variables
-readonly DEFAULT_TIMEOUT=30
-local current_time=$(date +%s)
-
-# Functions: lower_case_with_underscores
-function process_file() {
-  # ...
-}
-
-# Constants: ALL_CAPS
-readonly MAX_RETRIES=3
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+```
+sr/                     the package (standard library only)
+  cli.py                preprocessing, dispatch, error handling
+  cli_support.py        argparse actions; schema → parser plumbing
+  registry.py           the subcommand table (data only, no imports)
+  options.py            ★ THE option schema
+  config.py             config files, env vars, precedence
+  context.py            per-run context: console, config, prompts, guards
+  console.py            colour, verbosity, text/json/porcelain output
+  pattern.py            the matcher: literal/regex/ERE/PCRE, ranges, counts
+  discovery.py          walking, pruning, globs, .gitignore, filters
+  textio.py             encoding, BOM, line endings, binary sniffing
+  replace.py            the engine: scan → confirm → write → record
+  find.py               read-only search rendering
+  diffview.py           unified diffs and their statistics
+  atomic.py             atomic, permission-preserving writes
+  session.py            sessions: manifest, journal, blob store, restore
+  errors.py             exception hierarchy → exit codes
+  exit_codes.py         ★ the frozen exit-code contract
+  util.py, version.py   sizes, durations, hashes, ids, semver
+  help_system.py        the manual: 27 topics + generated option reference
+  commands/             one module per subcommand
+    parsers.py          argparse definitions for every subcommand
+    common.py           context → engine options, reporting, guards
+    replace.py          replace / find / diff / rename
+    sessions.py         rollback / sessions
+    update.py           self-update + installation detection
+    doctor.py           diagnostics
+    completions.py      shell completion generation
+    config.py           configuration inspection
+    selftest.py         built-in smoke test
+tests/                  hermetic pytest suite
+tools/                  build helpers (zipapp, man page)
+scripts/                install.sh, version sync, release notes, doc tables
+npm/                    the npm package (launcher + bundled zipapp)
+docs/                   man page, option reference, migration guide
+.github/workflows/      ci.yml, release.yml
 ```
 
-#### 2. **Code Structure**
-
-```bash
-#!/bin/bash
-
-# Strict mode
-set -euo pipefail
-IFS=$'\n\t'
-
-# Configuration section
-readonly SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
-
-# Function definitions
-function main() {
-  # Main logic
-  return 0
-}
-
-# Error handling
-trap 'handle_error "$?" "$LINENO"' ERR
-
-# Execution
-main "$@"
-exit $?
-```
-
-#### 3. **Error Handling**
-
-```bash
-# Use proper error handling
-if ! command_that_might_fail; then
-  echo "Error: Command failed" >&2
-  return 1
-fi
-
-# Quote variables
-echo "Value: ${variable}"
-echo "${array[@]}"
-
-# Avoid dangerous patterns
-# BAD:  eval command
-# GOOD: "$@" or explicit variable passing
-```
-
-#### 4. **Comments and Documentation**
-
-```bash
-# Function documentation format
-##
-# Brief description of what the function does.
-#
-# Arguments:
-#   $1 - Description of first argument
-#   $2 - Description of second argument (optional)
-#
-# Returns:
-#   0 on success, non-zero on failure
-#
-# Example:
-#   result=$(my_function "arg1" "arg2")
-##
-function my_function() {
-  # Implementation
-}
-```
-
-#### 5. **Indentation and Formatting**
-
-- Use 2 spaces for indentation
-- Keep lines under 100 characters when possible
-- Use meaningful variable names
-- Add blank lines between logical sections
+★ = changing these files is a **contract change**: update the docs, the tests
+and (for exit codes) the changelog in the same commit.
 
 ---
 
-## Testing Guidelines
+## Adding an option
 
-### Creating Tests
+One declaration in `sr/options.py` is nearly the whole job:
 
-1. **Unit Tests**: Test individual functions in isolation
-2. **Integration Tests**: Test complete workflows
-3. **Edge Cases**: Test boundary conditions and error scenarios
-
-### Test File Structure
-
-```bash
-#!/bin/bash
-# tests/unit/test_function_name.sh
-
-source "${SCRIPT_DIR}/../sr.sh"
-
-test_function_returns_zero_on_success() {
-  local result
-  result=$(my_function "valid_input")
-  assert_equals "$?" "0"
-}
-
-test_function_handles_empty_input() {
-  local result
-  result=$(my_function "")
-  assert_equals "$?" "1"
-}
-
-# Run tests
-run_all_tests
+```python
+OptionSpec(
+    "keep-newest",                 # → --keep-newest, SR_KEEP_NEWEST, keep_newest
+    OptionKind.INT,                # flag | string | int | size | duration | choice | list | path
+    short="K",                     # optional single-letter form (must be unique)
+    default=None,
+    group="safety",                # one of the GROUPS entries
+    metavar="N",
+    commands=("replace", "rename"),# empty tuple = global option
+    help="Keep the newest N files.",
+)
 ```
 
-### Running Tests
+That single entry gives you, automatically:
 
-```bash
-# Run all tests
-bash tests/run_tests.sh
+| Surface | Where it shows up |
+| --- | --- |
+| parser | `sr <command> --keep-newest N` (with `type=` coercion and good errors) |
+| config file | `keep-newest = 3` in any `.srrc`, or `[replace] keep-newest = 3` |
+| environment | `SR_KEEP_NEWEST=3` |
+| `--config` | `sr replace … --config keep-newest=3` |
+| help | `sr help options`, `sr help --keep-newest`, `sr <command> --help` |
+| man page | `make man` |
+| completions | `make completions` (bash, zsh, fish) |
+| docs table | `make docs` (README + docs/OPTIONS.md) |
+| `sr config` | `sr config list`, `sr config show keep-newest` |
+| `--json` | the effective-options block of the report |
 
-# Run specific test file
-bash tests/unit/test_specific.sh
+Then read the value in the command layer — never from `argparse` directly:
 
-# Run tests with verbose output
-bash tests/run_tests.sh --verbose
+```python
+keep_newest = context.value("keep_newest")     # CLI > env > config > default
+if context.flag("some-flag"):                  # booleans
+    ...
 ```
 
-### Test Coverage
+`context.value()` handles the precedence, type coercion and the
+"was it actually typed?" question (`--no-backup` must be able to beat
+`backup = true` in a config file).
 
-Aim for at least 80% code coverage:
+Finally, regenerate the derived artefacts and add a test:
 
-```bash
-# Check coverage (if coverage tool is available)
-bash tests/run_tests.sh --coverage
+```sh
+make docs man completions
+python3 -m pytest tests/test_options.py -q
 ```
+
+Checklist:
+
+- [ ] declared in `sr/options.py` (and nowhere else)
+- [ ] short flag is unique (`tests/test_options.py` asserts this)
+- [ ] read through `context.value()` / `context.flag()`, not `args.…`
+- [ ] help text is one line, ends with a full stop, and says what it *does*
+- [ ] an example added to `_option_example()` in `sr/help_system.py`
+- [ ] `make docs man completions` re-run and committed
+- [ ] a test covering the behaviour, not just the parsing
 
 ---
 
-## Commit Message Conventions
+## Adding a command
 
-We follow [Conventional Commits](https://www.conventionalcommits.org/) specification:
+1. Add it to `SUBCOMMANDS` in `sr/registry.py` (name, aliases, one-line summary)
+   and its usage line to `USAGE`.
+2. Add `build_<name>_parser()` in `sr/commands/parsers.py`, using
+   `add_subcommand()` and `add_option_group()`.
+3. Add `cmd_<name>(context) -> int` in a module under `sr/commands/` and
+   re-export it from `sr/commands/__init__.py`.
+4. If it deserves a manual chapter, add a topic in `sr/help_system.py`
+   (`_TOPIC_SPECS`) — `sr help <command>` then links to it via
+   `_related_topics()`.
+5. Add tests in `tests/test_cli.py` covering the happy path, the usage errors
+   and the exit codes.
 
-```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
-```
-
-### Types
-
-- **feat**: New feature
-- **fix**: Bug fix
-- **docs**: Documentation changes
-- **test**: Adding or updating tests
-- **refactor**: Code refactoring
-- **perf**: Performance improvements
-- **chore**: Maintenance tasks
-- **ci**: CI/CD configuration changes
-
-### Examples
-
-```bash
-feat(regex): add support for lookahead assertions
-
-Add support for positive and negative lookahead assertions
-in regex patterns. This allows more complex pattern matching
-scenarios while maintaining backward compatibility.
-
-Closes #123
-
-feat(rollback): implement session-based rollback system
-fix(binary-detection): improve detection of UTF-8 with BOM
-docs(readme): update installation instructions
-test(regex): add test cases for edge cases
-```
+A command is just a function: it reads the `Context`, does its work and returns
+an exit code. It must not call `sys.exit()`, print to `sys.stdout` directly, or
+read `os.environ` — go through `context.console`, `context.value()` and
+`SrError` so that `--json`, `--quiet` and the tests all keep working.
 
 ---
-
-## Pull Request Process
-
-### Before You Start
-
-1. Check if your issue is already being worked on
-2. Discuss major changes in an issue first
-3. Keep PRs focused on a single concern
-
-### Creating a Pull Request
-
-```bash
-# 1. Ensure your fork is up to date
-git fetch upstream
-git rebase upstream/main
-
-# 2. Push your changes
-git push origin feature/your-feature-name
-
-# 3. Open PR on GitHub
-#    - Clear title (same as commit message type)
-#    - Detailed description of changes
-#    - Reference related issues
-#    - Checklist of testing performed
-```
-
-### PR Description Template
-
-```markdown
-## Description
-Brief description of what this PR does.
-
-## Related Issue
-Closes #123
-
-## Changes
-- Change 1
-- Change 2
-- Change 3
 
 ## Testing
-- [ ] Unit tests added/updated
-- [ ] Integration tests passed
-- [ ] Manual testing completed
-- [ ] Tested on Linux
-- [ ] Tested on macOS
 
-## Checklist
-- [ ] Code follows style guidelines
-- [ ] Documentation updated
-- [ ] No new warnings generated
-- [ ] Tests pass locally
+```sh
+make test                                   # everything
+python3 -m pytest tests/test_pattern.py -q  # one file
+python3 -m pytest -k rollback -q            # by keyword
+make coverage                               # with a coverage report
 ```
 
-### Review Process
+Layout:
 
-1. **Code Review**: Maintainers will review your code
-2. **Tests**: All CI tests must pass
-3. **Feedback**: Address any requested changes
-4. **Merge**: Once approved, your PR will be merged
+| File | Covers |
+| --- | --- |
+| `test_pattern.py` | literal/regex/ERE/PCRE, escapes, `-i`, `-w`, ranges, counts, coordinates |
+| `test_textio.py` | encodings, BOM, line endings, binary sniffing, size guards |
+| `test_discovery.py` | globs, pruning, `.gitignore`, depth, hidden, symlinks, filters |
+| `test_atomic.py` | atomic writes, inode semantics, metadata, failure paths |
+| `test_session.py` | manifest, journal, blobs, locking, resolution, restore, pruning |
+| `test_replace.py` | the engine end to end: dry run, write modes, renames, hunks, confirmation |
+| `test_find.py` | read-only search rendering and result objects |
+| `test_cli.py` | grammar, exit codes, guards, sessions/rollback/rename through the CLI |
+| `test_config.py` | parsing, coercion, precedence, origins, `sr config` |
+| `test_help.py` | every topic renders, every option documented, completions |
+| `test_update.py` | version comparison, checksums, install detection, cache, HTTP stubbed |
+| `test_contracts.py` | the frozen contracts: semver, exit codes, the option schema |
+| `test_console.py` | colour detection, verbosity, JSON/porcelain routing, diffs |
+| `test_cli_commands.py` | `doctor`, `selftest`, `config`, `update`, `completions`, help plumbing |
 
-### Review Checklist
+Conventions:
 
-Reviewers will check:
-- Code quality and style compliance
-- Test coverage adequacy
-- Documentation completeness
-- Performance impact
-- Security implications
-- Backward compatibility
+- fixtures live in `tests/conftest.py` (`project`, `captured`, `isolated_home`,
+  `not_root`); helpers in `tests/helpers.py` and `tests/cli_helpers.py`
+- `isolated_home` redirects `HOME`/`XDG_*` into `tmp_path` and disables the
+  update check for **every** test — do not undo it
+- `not_root` fakes a non-zero euid so the root guard does not trip on CI runners
+  that run as root; the guard itself is tested explicitly in
+  `tests/test_cli.py::TestGuards`
+- CLI tests go through `cli_helpers.sr(...)`, which calls `sr.cli.main` in
+  process with captured stdout/stderr — that exercises preprocessing, argparse,
+  config merging and exit codes together
+- anything that reaches the network is stubbed (see `test_update.py`)
+- a bug fix comes with a test that fails without the fix
 
 ---
 
-## Reporting Bugs
+## Style and quality gates
 
-### Bug Report Checklist
+`make check` is what CI runs, and it is the bar for merging:
 
-✓ **Before submitting:**
-
-- [ ] Check if the bug has been reported already
-- [ ] Test with the latest version
-- [ ] Isolate the issue to the minimum reproduction case
-- [ ] Try with different inputs/configurations
-
-### Bug Report Template
-
-```markdown
-## Description
-Clear description of the bug.
-
-## System Information
-- OS: [e.g., Ubuntu 20.04]
-- Shell: [e.g., Bash 5.1.4]
-- sr-search-replace version: [e.g., 6.1.0]
-
-## Steps to Reproduce
-1. First step
-2. Second step
-3. ...
-
-## Expected Behavior
-What should happen.
-
-## Actual Behavior  
-What actually happens.
-
-## Screenshots/Output
 ```
-$ command output here
+lint → typecheck → test → dist-check → man-check → docs-check → sync-version → selftest
 ```
 
-## Additional Context
-Any other context about the problem.
-```
+- **ruff** with the configuration in `pyproject.toml` (line length 110,
+  `E W F I B C4 UP SIM RET PTH RUF S`). Security rules (`S`) are on: no `eval`,
+  no `shell=True`, no bare `except`.
+- **mypy** is advisory for now (`make typecheck` does not fail CI) but new code
+  should be annotated.
+- **shellcheck** runs on every shipped shell script (`scripts/install.sh`,
+  `sr-cli`) at `-S warning` with zero findings.
+- Docstrings are reST-flavoured and explain *why*, not *what*. Every module has
+  a module docstring stating its responsibility and its invariants.
+- User-facing strings: sentence case, no trailing "!", and an actionable `hint`
+  on every error.
 
 ---
 
-## Suggesting Enhancements
+## Generated artefacts
 
-### Feature Request Template
+These files are **committed** but must never be edited by hand — CI regenerates
+them and fails on a diff:
 
-```markdown
-## Description
-Clear description of the feature.
+| Artefact | Generator |
+| --- | --- |
+| `docs/man/sr.1` | `tools/build_manpage.py` (`make man`) |
+| `completions/sr.{bash,zsh,fish}` | `sr completions <shell>` (`make completions`) |
+| the option table in `README.md` and `docs/OPTIONS.md` | `scripts/gen_options_table.py` (`make docs`) |
+| `build/sr.pyz`, `build/sr.pyz.sha256` | `tools/build_zipapp.py` (`make dist`) — *not* committed |
+| `npm/app/sr.pyz` | `npm/scripts/pack_app.js` (`make npm`) — *not* committed |
 
-## Motivation
-Why this feature would be useful.
-
-## Proposed Solution
-How the feature might be implemented.
-
-## Alternative Solutions
-Other ways to solve the problem.
-
-## Use Case Example
-```
-$ sr-search-replace <example command>
-```
-
-## Implementation Notes
-Any technical considerations.
-```
+Version strings live in `pyproject.toml` and are propagated by
+`scripts/sync_version.py` to `sr/version.py` and `npm/package.json`.
 
 ---
 
-## Documentation
+## Releasing
 
-### Updating Docs
+```sh
+# 1. bump the version
+$EDITOR pyproject.toml                       # version = "7.1.0"
+make sync-version V=7.1.0                    # propagates everywhere
 
-When submitting a PR that changes functionality:
+# 2. write the changelog entry (it becomes the GitHub Release body)
+$EDITOR CHANGELOG.md                         # ## [7.1.0] - YYYY-MM-DD
 
-1. **Update README.md** if adding new features
-2. **Update CHANGELOG.md** with your changes
-3. **Update inline comments** in code
-4. **Update wiki** for significant changes
-5. **Update examples** if behavior changes
+# 3. regenerate the derived artefacts
+make docs man completions
 
-### Documentation Standards
+# 4. run the gate
+make release-check                           # = make check + changelog/license checks
 
-- Use clear, concise language
-- Include code examples where applicable
-- Keep formatting consistent with existing docs
-- Link to related documentation
-- Update table of contents if adding sections
-
-### Example Documentation
-
-```markdown
-## Feature Name
-
-Brief description.
-
-### Usage
-
-```bash
-sr-search-replace [options] pattern replacement [files]
+# 5. ship
+git add -A && git commit -m "release: 7.1.0"
+git tag v7.1.0
+git push --follow-tags
 ```
 
-### Examples
+CI (`.github/workflows/release.yml`) then:
 
-```bash
-# Basic example
-sr-search-replace "old" "new" file.txt
+1. verifies the tag matches `pyproject.toml` (a mismatch aborts the release)
+2. re-runs lint and the full suite on the tagged commit
+3. builds `sr.pyz` + `sr.pyz.sha256`, the sdist and the wheel
+4. installs the wheel in a fresh venv and runs `sr selftest` against it
+5. publishes the GitHub Release with the assets and the changelog section
+6. publishes to PyPI and npm (each step no-ops when its token is absent)
 
-# Advanced example
-sr-search-replace -r "pattern\\d+" "replacement" --directory ./src
-```
+`sr update` downloads `sr.pyz`, verifies it against `sr.pyz.sha256`, smoke-tests it
+and replaces the running file — so **the checksum asset is not optional**:
+without it, every standalone user gets a warning instead of a verified update.
 
-### Options
-
-- `--option1`: Description
-- `--option2`: Description
-```
+Semantic versioning is taken seriously: a change to exit codes, JSON keys, the
+session manifest schema (`SCHEMA_VERSION`) or option semantics is a major bump.
 
 ---
 
-## Questions?
+## What makes a good issue
 
-Don't hesitate to ask for help:
+**Bug reports** — please include:
 
-- **GitHub Issues**: For bugs and features
-- **GitHub Discussions**: For questions and ideas
-- **Email**: sr@devnekin.com for general inquiries
-- **Wiki**: Check the [Contributing Guide](https://github.com/paulmann/sr-search-replace/wiki/Contributing-Guide) for more details
+```sh
+sr --version
+sr doctor --json
+SR_DEBUG=1 sr <the failing command>          # traceback, if it crashed
+```
+
+plus the smallest reproduction you can manage (a directory listing and the
+exact command line is usually enough). Say what you expected and what happened;
+if data was lost, say so up front — that changes the priority.
+
+**Feature requests** — describe the *job*, not the flag:
+
+> "I need to bump a version string in every manifest but skip the vendored
+> copies" is actionable. "Add `--skip-vendor`" probably already exists as
+> `--exclude vendor/*`.
+
+Before opening one, check `sr help topics` — with 27 topics and ~40 documented
+examples, a lot of requests are already covered.
+
+**Pull requests** — small, focused, with a test. If the change touches matching
+semantics, sessions, exit codes or the update path, open an issue first: those
+are contracts, and we would rather discuss than revert.
 
 ---
 
-## Recognition
+## Code of conduct
 
-All contributors will be recognized in:
-- The project README
-- The CHANGELOG
-- Our Hall of Fame in the Wiki
+Be direct about code and kind about people. Review comments explain *why*.
+Disagreements get settled by tests and by the documented contract, not by
+volume.
 
-Thank you for making sr-search-replace better! 🎉
+## License
+
+By contributing, you agree that your contributions will be licensed under the
+MIT License in [`LICENSE`](LICENSE).

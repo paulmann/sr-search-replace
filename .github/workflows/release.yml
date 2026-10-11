@@ -1,28 +1,285 @@
-name: Create Release
+# =============================================================================
+# Release — triggered by a `v*.*.*` tag (or manually, as a dry run).
+#
+# Pipeline:
+#   1. verify the tag matches the version in pyproject.toml — a mismatch aborts,
+#      because a release whose `--version` disagrees with its tag produces
+#      un-diagnosable installs and broken `sr update` comparisons
+#   2. run the full suite once more on the tagged commit
+#   3. build the assets:
+#        sr.pyz          single-file executable (what `sr update` downloads)
+#        sr.pyz.sha256   checksum in `sha256sum` format (what it verifies)
+#        sdist + wheel   PyPI artefacts
+#   4. publish the GitHub Release with the assets and the CHANGELOG section
+#   5. publish to PyPI and npm (each step no-ops when its token is absent, so a
+#      fork can run the whole pipeline safely)
+#
+# Secrets (both optional):
+#   PYPI_API_TOKEN   PyPI upload token
+#   NPM_TOKEN        npm automation token
+# =============================================================================
+name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the release (off = build and verify only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUNBUFFERED: "1"
+  SR_NO_UPDATE_CHECK: "1"
+  NO_COLOR: "1"
 
 jobs:
-  create-release:
+  verify:
+    name: Verify the tag
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
     steps:
-      - uses: actions/checkout@v3
-      - name: Extract version
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
         with:
+          python-version: "3.12"
+
+      - name: Tag and version must agree
+        id: version
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          PUBLISH_INPUT: ${{ inputs.publish }}
+        run: |
+          set -euo pipefail
+          declared="$(python scripts/read_version.py)"
+          echo "declared version: $declared"
+
+          # Only a tag push carries a version to compare against; a manual run
+          # builds and verifies without publishing.
+          if [ "$REF_TYPE" = "tag" ]; then
+            tag="${REF_NAME#v}"
+            if [ "$tag" != "$declared" ]; then
+              echo "::error::tag $REF_NAME does not match pyproject.toml version $declared"
+              echo "fix with: python scripts/sync_version.py $tag && make release-check"
+              exit 1
+            fi
+            publish=true
+          else
+            publish="${PUBLISH_INPUT:-false}"
+          fi
+
+          echo "version=$declared" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+      - name: Version strings agree everywhere
+        run: python scripts/sync_version.py --check
+
+      - name: CHANGELOG mentions this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          grep -q "$VERSION" CHANGELOG.md || {
+            echo "::error::CHANGELOG.md has no entry for $VERSION"
+            exit 1
+          }
+
+  test:
+    name: Test the tagged commit
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip pytest pytest-cov ruff
+      - run: ruff check sr tests tools scripts
+      - run: python -m pytest -q
+      - run: python -m sr selftest
+
+  build:
+    name: Build release assets
+    runs-on: ubuntu-latest
+    needs: [verify, test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build pytest
+
+      - name: Build the zipapp
+        run: python tools/build_zipapp.py --output build/sr.pyz
+
+      - name: Verify the zipapp
+        run: |
+          set -euo pipefail
+          python tools/build_zipapp.py --output build/sr.pyz --check
+          ./build/sr.pyz selftest
+          ./build/sr.pyz --version | head -1
+          sha256sum -c build/sr.pyz.sha256
+
+      - name: Build sdist and wheel
+        run: python -m build --sdist --wheel --outdir build/dist
+
+      - name: Install the wheel in a venv and smoke test it
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/wheeltest
+          /tmp/wheeltest/bin/pip install --quiet build/dist/*.whl
+          /tmp/wheeltest/bin/sr --version
+          /tmp/wheeltest/bin/sr selftest
+
+      - name: Write the release notes
+        run: python scripts/release_notes.py --output build/RELEASE_NOTES.md
+
+      - name: Upload assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            build/sr.pyz
+            build/sr.pyz.sha256
+            build/dist/*
+            build/RELEASE_NOTES.md
+          if-no-files-found: error
+
+  github-release:
+    name: Publish the GitHub Release
+    runs-on: ubuntu-latest
+    needs: [verify, build]
+    if: needs.verify.outputs.publish == 'true'
+    steps:
+      - name: Download assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: assets
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: sr ${{ needs.verify.outputs.version }}
+          body_path: assets/build/RELEASE_NOTES.md
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(needs.verify.outputs.version, '-') }}
+          fail_on_unmatched_files: true
+          generate_release_notes: false
           files: |
-            sr.sh
-            README.md
-            LICENSE
-            CHANGELOG.md
-            EXAMPLES.md
+            assets/build/sr.pyz
+            assets/build/sr.pyz.sha256
+            assets/build/dist/*.whl
+            assets/build/dist/*.tar.gz
+
+  pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [verify, build]
+    if: needs.verify.outputs.publish == 'true'
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sr-search-replace/
+    steps:
+      - name: Download assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: assets
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Upload
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TWINE_PASSWORD:-}" ]; then
+            echo "PYPI_API_TOKEN is not set — skipping the PyPI upload"
+            exit 0
+          fi
+          python -m pip install --upgrade twine
+          twine check assets/build/dist/*
+          twine upload --non-interactive assets/build/dist/*
+
+  npm:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    needs: [verify, build]
+    if: needs.verify.outputs.publish == 'true'
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/sr-search-replace
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bundle the app into the npm package
+        run: |
+          set -euo pipefail
+          cd npm
+          node scripts/pack_app.js
+          cp ../LICENSE ../README.md ../CHANGELOG.md .
+          ls -l app bin
+
+      - name: Verify the packaged launcher
+        run: |
+          set -euo pipefail
+          cd npm
+          node bin/sr --version
+          node bin/sr selftest
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "NPM_TOKEN is not set — skipping the npm publish"
+            exit 0
+          fi
+          cd npm
+          npm publish --access public
+
+  summary:
+    name: Release summary
+    runs-on: ubuntu-latest
+    needs: [verify, build, github-release]
+    if: always()
+    steps:
+      - name: Report
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          PUBLISH: ${{ needs.verify.outputs.publish }}
+          BUILD: ${{ needs.build.result }}
+          RELEASE: ${{ needs.github-release.result }}
+        run: |
+          echo "sr ${VERSION:-?} (publish=${PUBLISH:-false})"
+          echo "  build         : ${BUILD:-skipped}"
+          echo "  github release: ${RELEASE:-skipped}"

@@ -1,5 +1,37 @@
 #!/usr/bin/env bash
 
+# #############################################################################
+#  DEPRECATED — legacy 6.1.0 implementation. Superseded by sr 7.
+#
+#  This file is kept on `main` for two reasons only:
+#
+#    1. the public raw URL stays alive for the wiki and for existing scripts
+#       (https://raw.githubusercontent.com/paulmann/sr-search-replace/main/sr.sh)
+#    2. `sr --rollback` / `sr --rollback=<backup>` still work against the
+#       `sr.backup.<timestamp>/` directories that 6.x created. sr 7 stores
+#       sessions elsewhere (`.sr/sessions/`) and does not read them.
+#
+#  It is NOT maintained and does NOT receive fixes. Known 6.1.0 defects:
+#    - aborts with exit 127 on hosts without `bc` (undeclared hard dependency)
+#    - `-E`/`--extended-regex` never worked (the pattern was escaped for sed
+#      before the flag was applied)
+#    - `--dry-run` created a backup directory and copied files into it
+#    - reported replacement counts were wrong (`grep -c` counts matching lines,
+#      `sed s///g` replaces occurrences; `-i`/`-w`/`-E` reached only one of them)
+#    - `--rollback` silently restored nothing when its file list held relative
+#      paths (the validator accepted absolute ones only)
+#    - `--sed-opts` / `--grep-opts` / `--find-opts` were concatenated into a
+#      command line and run through `eval`
+#  The full list is in CHANGELOG.md under 7.0.0 -> "Fixed (defects in 6.1.0)".
+#
+#  Install sr 7:
+#    curl -fsSL https://raw.githubusercontent.com/paulmann/sr-search-replace/main/scripts/install.sh | bash
+#    pipx install sr-search-replace
+#  Migrate:
+#    sr help compat          (flag-by-flag mapping)
+#    docs/MIGRATION-6-to-7.md
+# #############################################################################
+
 # Search and Replace (sr) - Universal text replacement tool
 # Version: 6.1.0
 # Author: Mikhail Deynekin [ Deynekin.com ]
@@ -4165,6 +4197,15 @@ trap 'log_error "Script interrupted by user"; exit 1' INT TERM
 trap 'log_error "Error occurred at line $LINENO"; exit 4' ERR
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+	# Deprecation notice: stderr only, so piping stdout keeps working.
+	if [[ -z "${SR_LEGACY_NO_NOTICE:-}" ]]; then
+		printf '%s\n' \
+			"[sr 6.1.0] DEPRECATED: this is the legacy bash implementation." \
+			"[sr 6.1.0] It is kept only for rolling back 6.x sr.backup.* sessions." \
+			"[sr 6.1.0] Install sr 7:  curl -fsSL https://raw.githubusercontent.com/paulmann/sr-search-replace/main/scripts/install.sh | bash" \
+			"[sr 6.1.0] Migrate:      sr help compat    (silence this notice with SR_LEGACY_NO_NOTICE=1)" >&2
+	fi
+
 	[[ $# -eq 0 ]] && {
 		show_help
 		exit 0

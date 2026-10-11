@@ -1,0 +1,19 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report (private)
+    url: mailto:mid1977@gmail.com?subject=sr%20security%20report
+    about: >
+      Please do not open a public issue for anything that could destroy data or
+      compromise an installation. Email mid1977@gmail.com — see SECURITY.md for
+      what to include and our response times.
+  - name: "The manual: sr help"
+    url: https://github.com/paulmann/sr-search-replace#the-built-in-manual
+    about: >
+      27 topics, 61 options and ~40 examples ship with the tool. Run
+      `sr help topics` before opening a "how do I…" issue — it is faster and
+      always matches the version you have installed.
+  - name: Troubleshooting
+    url: https://github.com/paulmann/sr-search-replace#troubleshooting
+    about: >
+      `sr doctor` and `sr selftest` answer most "is my install broken?"
+      questions in about a second.

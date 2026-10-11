@@ -1,0 +1,21 @@
+# Normalise line endings on check-in, check out as LF everywhere.
+# Without this a Windows contributor would silently convert every shell and
+# Python file to CRLF, which breaks `bash scripts/install.sh` and the shebang
+# handling of the launchers.
+* text=auto eol=lf
+
+# Files that must keep the executable bit in the index (git tracks it as 100755).
+sr-cli          text eol=lf
+sr.py           text eol=lf
+npm/bin/sr      text eol=lf
+scripts/*.sh    text eol=lf
+scripts/*.py    text eol=lf
+tools/*.py      text eol=lf
+sr.sh           text eol=lf
+legacy/v6/bin/sr text eol=lf
+
+# Never touch binary assets.
+*.png binary
+*.jpg binary
+*.ico binary
+*.pyz binary

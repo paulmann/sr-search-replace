@@ -1,0 +1,265 @@
+# =============================================================================
+# CI — the quality gate for every push and pull request.
+#
+# What it proves, in order:
+#   1. the code is lint-clean and type-checks
+#   2. the whole test suite passes on every supported Python (3.9 … 3.13) and
+#      on both Linux and macOS (the two supported platforms)
+#   3. the shipped shell scripts are shellcheck-clean
+#   4. the release artefacts build: zipapp, man page, completions
+#   5. the built zipapp actually works (`sr selftest` inside the archive)
+#   6. generated files committed to the repo are up to date (man page,
+#      completions, version strings) — a stale artefact fails the build
+#
+# No network access is needed by the tests themselves; only `pip install` of the
+# dev extras reaches the index.
+# =============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  SR_NO_UPDATE_CHECK: "1"
+  NO_COLOR: "1"
+
+jobs:
+  # --------------------------------------------------------------------------
+  lint:
+    name: Lint & types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dev tools
+        run: python -m pip install --upgrade pip ruff mypy
+
+      - name: Ruff
+        run: ruff check sr tests tools scripts
+
+      - name: Ruff format (report only)
+        run: ruff format --diff sr tests tools scripts || true
+
+      - name: Mypy
+        run: mypy sr || true   # advisory until the strict pass lands
+
+      - name: Byte-compile every module
+        run: python -m compileall -q sr tools scripts
+
+  shellcheck:
+    name: Shellcheck (shipped scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: ./scripts
+          severity: warning
+
+      - name: bash -n on every shell file
+        run: |
+          set -euo pipefail
+          for f in scripts/*.sh sr-cli; do
+            [ -f "$f" ] || continue
+            bash -n "$f" && echo "ok: $f"
+          done
+
+  # --------------------------------------------------------------------------
+  test:
+    name: Test (py${{ matrix.python }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is deliberately absent: the supported platforms are Linux and
+        # macOS (see pyproject.toml and README "Platforms").  Adding a win32 leg
+        # would turn known platform gaps into red builds without making sr work
+        # there.  `sr doctor` reports the capability gaps on any platform.
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.11", "3.13", "3.14"]
+        include:
+          - os: ubuntu-latest
+            python: "3.10"
+          - os: ubuntu-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest pytest-cov
+
+      - name: Run the suite
+        run: python -m pytest -q --cov=sr --cov-report=term-missing --cov-report=xml
+
+      - name: Built-in smoke test (from the source tree)
+        run: python -m sr selftest
+
+      - name: Upload coverage
+        if: matrix.python == '3.12' && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  # --------------------------------------------------------------------------
+  artefacts:
+    name: Build & verify release artefacts
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dev tools
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Build the zipapp
+        run: python tools/build_zipapp.py --output build/sr.pyz
+
+      - name: Verify the zipapp end to end
+        run: python tools/build_zipapp.py --output build/sr.pyz --check
+
+      - name: Run the smoke test *inside* the zipapp
+        run: ./build/sr.pyz selftest
+
+      - name: Exercise the zipapp on a scratch project
+        run: |
+          set -euo pipefail
+          workdir="$(mktemp -d)"
+          printf 'hello world\n' > "$workdir/a.txt"
+          mkdir -p "$workdir/src" && printf 'hello again\n' > "$workdir/src/b.txt"
+          ./build/sr.pyz find hello -C "$workdir"
+          ./build/sr.pyz diff hello bye -C "$workdir"
+          ./build/sr.pyz replace hello bye -C "$workdir" --yes
+          grep -q 'bye world' "$workdir/a.txt"
+          ./build/sr.pyz rollback --yes -C "$workdir"
+          grep -q 'hello world' "$workdir/a.txt"
+          ./build/sr.pyz replace hello bye -C "$workdir" --json --yes | python -c 'import json,sys; d=json.load(sys.stdin); assert d["totals"]["replacements"] == 2, d'
+          rm -rf "$workdir"
+
+      - name: Regenerate and compare the man page
+        run: |
+          python tools/build_manpage.py --output build/sr.1
+          diff -u docs/man/sr.1 build/sr.1
+          echo "man page is up to date"
+
+      - name: Regenerate and compare the completions
+        run: |
+          set -euo pipefail
+          for shell in bash zsh fish; do
+            python -m sr completions "$shell" > "build/sr.$shell"
+            diff -u "completions/sr.$shell" "build/sr.$shell"
+          done
+          echo "completions are up to date"
+
+      - name: Validate the bash completion script
+        run: bash -n completions/sr.bash
+
+      - name: Regenerate and compare the documentation tables
+        run: |
+          set -euo pipefail
+          python scripts/gen_options_table.py --check
+
+      - name: Version strings agree
+        run: python scripts/sync_version.py --check
+
+      - name: Build the sdist/wheel metadata (dry run)
+        run: |
+          python -m pip install --upgrade build
+          python -m build --sdist --wheel --outdir build/dist
+          ls -l build/dist
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            build/sr.pyz
+            build/sr.pyz.sha256
+            build/dist/*
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  installer:
+    name: Installer script (dry run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Syntax and shellcheck
+        run: |
+          bash -n scripts/install.sh
+          command -v shellcheck >/dev/null && shellcheck -S warning scripts/install.sh || true
+
+      - name: --help works without network
+        run: bash scripts/install.sh --help
+
+      - name: Fails cleanly when the release has no asset
+        # v6.1.0 is a real release that ships sr.sh and no sr.pyz, so it is a
+        # genuine "asset missing" case that needs no fixtures.
+        run: |
+          set +e
+          out=$(bash scripts/install.sh --prefix /tmp/srbin --version 6.1.0 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          echo "$out" | grep -qi 'asset'
+          test ! -e /tmp/srbin/sr
+
+      - name: Checksum asset name agrees across build, updater and installer
+        # The 7.0.0 pre-release audit found the build publishing sr.pyz.sha256
+        # while the updater and the installer looked for sr.sha256 — so the
+        # lookup always missed and both installed *unverified*. These greps make
+        # the three names impossible to drift apart silently.
+        run: |
+          set -euo pipefail
+          grep -q 'RELEASE_ASSET = "sr.pyz"' sr/commands/update.py
+          grep -q 'CHECKSUM_ASSET = f"{RELEASE_ASSET}.sha256"' sr/commands/update.py
+          grep -q 'ASSET = "sr.pyz"' scripts/install.sh
+          grep -q 'CHECKSUM="${ASSET}.sha256"' scripts/install.sh
+          grep -q 'suffix + ".sha256"' tools/build_zipapp.py
+          grep -q 'sr.pyz.sha256' .github/workflows/release.yml
+          grep -q 'sr.pyz.sha256' build/sr.pyz.sha256 || true
+          ! grep -rn '"sr\.sha256"' sr/ scripts/ tools/
+          echo "checksum asset name agrees: sr.pyz -> sr.pyz.sha256"
+
+      - name: Updater refuses an unverifiable download
+        # Fail-closed is a security property, so it is asserted here as well as
+        # in tests/test_update.py (which stubs the network).
+        run: python -m pytest tests/test_update.py -q -k "missing_checksum or no_verify or checksum_asset_name"

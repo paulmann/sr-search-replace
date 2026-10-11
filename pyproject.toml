@@ -1,0 +1,176 @@
+# =============================================================================
+# sr-search-replace — build configuration
+#
+# Runtime dependencies: none.  The package is standard library only, which is a
+# deliberate constraint (see `sr help development`): a bulk-edit tool that can
+# fail to install is worse than no tool at all.
+# =============================================================================
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sr-search-replace"
+version = "7.0.0"
+description = "Safe, auditable search & replace for source trees — literal by default, session-based rollback, JSON output."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "Mikhail Deynekin", email = "mid1977@gmail.com" },
+]
+maintainers = [
+  { name = "Mikhail Deynekin", email = "mid1977@gmail.com" },
+]
+keywords = [
+  "search", "replace", "find-replace", "refactoring", "cli", "sed", "grep",
+  "bulk-edit", "rollback", "backup", "codemod", "text-processing", "devtools",
+  "sysadmin", "regex", "rename", "migration",
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  # Windows is deliberately NOT claimed: sr relies on POSIX rename semantics,
+  # os.chown, O_CREAT|O_EXCL advisory locks and inode preservation.  The Python
+  # entry point imports and runs on win32, but the write path is untested there.
+  # Windows users are pointed at WSL2 (the npm launcher says so explicitly).
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Quality Assurance",
+  "Topic :: Text Processing :: General",
+  "Topic :: Utilities",
+  "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "ruff>=0.5",
+  "mypy>=1.8",
+]
+
+[project.urls]
+Homepage = "https://github.com/paulmann/sr-search-replace"
+Repository = "https://github.com/paulmann/sr-search-replace"
+Issues = "https://github.com/paulmann/sr-search-replace/issues"
+Changelog = "https://github.com/paulmann/sr-search-replace/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/paulmann/sr-search-replace/tree/main/docs"
+
+[project.scripts]
+sr = "sr.__main__:run"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["sr*"]
+exclude = ["tests*", "tools*", "scripts*", "npm*", "docs*"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error::DeprecationWarning:sr.*"]
+markers = [
+  "slow: tests that take more than a second",
+  "network: tests that require network access (deselected by default)",
+]
+
+[tool.coverage.run]
+source = ["sr"]
+branch = true
+omit = ["sr/commands/selftest.py"]
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+  "except ImportError:",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+extend-exclude = ["build", "dist", "npm"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes
+  "I",    # isort
+  "B",    # flake8-bugbear
+  "C4",   # flake8-comprehensions
+  "UP",   # pyupgrade
+  "SIM",  # flake8-simplify
+  "RET",  # flake8-return
+  "PTH",  # flake8-use-pathlib
+  "RUF",  # ruff-specific
+  "S",    # flake8-bandit (security)
+]
+# Each entry is a deliberate decision, not a way to make the lint pass:
+ignore = [
+  "E501",    # line length: prose and tables in the help system exceed it on purpose
+  "SIM105",  # `try/except/pass` around best-effort cleanup reads better than
+             # contextlib.suppress when the surrounding code is already a
+             # sequence of best-effort steps (fsync, chmod, chown)
+  "SIM102",  # nested `if` keeps each guard's own comment attached to it
+  "SIM108",  # ternaries are not always clearer
+  "SIM115",  # os.open/O_CREAT|O_EXCL and the lock fd cannot use a `with` block
+  "RET504",  # an extra assignment before return documents intent
+  "PTH111",  # os.path.expanduser handles env vars that Path.expanduser does not
+  "PTH100",  # os.path.realpath is the only call that tolerates missing paths
+             # identically on every supported platform
+  "PTH105",  # os.chmod next to os.chown/stat keeps the mode handling readable
+  "PTH101",  # os.chmod: same reason
+  "PTH211",  # os.symlink has no Path equivalent that reads better
+  "PTH116",  # os.utime with ns= is explicit about nanosecond precision
+  "PTH123",  # open() with an explicit encoding reads better than Path.open()
+  "S110",    # best-effort cleanup (fsync/chmod/unlink) intentionally swallows
+  "S101",    # assert is the test framework's API
+  "S603",    # subprocess with a fixed argv (smoke test) is fine
+  "S607",    # invoking `python3`/`bash` by name is the point of those calls
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: asserts, hardcoded secrets used as fixtures, temporary paths, and
+# imports that must come after the sys.path bootstrap.
+"tests/*" = ["S101", "S105", "S106", "S108", "E402", "RUF059", "C408", "PLR2004"]
+"tools/*" = ["S603", "S607", "E402"]
+"scripts/*" = ["E402"]
+# The help system imports sr.cli lazily inside functions to break the
+# cli ↔ help_system cycle; module-level imports after the sys.path bootstrap
+# are unavoidable in the package entry points.
+# S608: the JSON topic contains an example `jq` filter that mentions SELECT.
+# S602: the only shell=True call is the user's own $PAGER for `sr help`.
+"sr/help_system.py" = ["S608", "S602"]
+"sr/__main__.py" = ["E402"]
+"sr/cli_support.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_incomplete_defs = false
+ignore_missing_imports = true
+files = ["sr"]

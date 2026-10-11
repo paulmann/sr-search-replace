@@ -1,0 +1,67 @@
+{
+  "name": "sr-search-replace",
+  "version": "7.0.0",
+  "description": "Safe, auditable search & replace for source trees — literal by default, session-based rollback, JSON output. Zero runtime dependencies.",
+  "keywords": [
+    "search",
+    "replace",
+    "find-replace",
+    "refactoring",
+    "codemod",
+    "cli",
+    "text-processing",
+    "rollback",
+    "backup",
+    "regex",
+    "bulk-edit",
+    "bulk-rename",
+    "sed",
+    "grep",
+    "devtools",
+    "sysadmin",
+    "migration"
+  ],
+  "author": {
+    "name": "Mikhail Deynekin",
+    "email": "mid1977@gmail.com",
+    "url": "https://deynekin.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/paulmann/sr-search-replace#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paulmann/sr-search-replace.git",
+    "directory": "npm"
+  },
+  "bugs": {
+    "url": "https://github.com/paulmann/sr-search-replace/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "bin": {
+    "sr": "bin/sr"
+  },
+  "files": [
+    "bin/",
+    "app/",
+    "scripts/",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepare": "node scripts/pack_app.js",
+    "test": "node bin/sr selftest",
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "preferGlobal": true,
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,1719 @@
+.TH "SR" "1" "2026-10-11" "sr 7.0.0" "User Commands"
+.ds Pg sr-search-replace
+.hy 0
+.SH NAME
+sr \- safe, auditable search and replace for source trees
+.SH SYNOPSIS
+.nf
+sr [GLOBAL OPTIONS] <command> [OPTIONS] [ARGS...]
+sr [GLOBAL OPTIONS] [GLOB...] SEARCH REPLACE
+.fi
+.PP
+A bare invocation (no known command as the first word) is a shortcut for sr replace. Flags may appear in any position.
+.SH DESCRIPTION
+.PP
+sr rewrites text across a whole tree of files, and keeps an audit trail of every change so you can review and undo it.  It is meant for the jobs where `sed -i` is too blunt and an editor's project-wide replace is too manual:
+.PP
+.nf
+  * renaming an API across a repository
+  * bumping versions in dozens of manifests
+  * migrating a config key or an import path
+  * normalising whitespace, encoding or line endings
+  * bulk renaming files
+.fi
+.PP
+Design rules that follow from that:
+.PP
+.nf
+  1. Literal by default.  A search string is a search string; \(ga.\(ga does not
+     suddenly mean "any character".  Regular expressions are opt\-in.
+  2. One engine.  Counting, previewing and replacing all use the same matcher,
+     so the number sr reports is the number of edits it makes.
+  3. Nothing is written before the whole tree is scanned.  The confirmation
+     prompt and the summary therefore state real numbers, not estimates.
+  4. Every mutating run is reversible.  Originals are stored content\-addressed
+     under <target>/.sr with a manifest, a journal and a diff per file.
+  5. Fail loudly, never silently.  Undecodable files are skipped and reported;
+     binary files are skipped unless asked for; drift after a session is
+     detected before a rollback overwrites anything.
+  6. Machine friendly.  Stable exit codes, \-\-json, \-\-porcelain, \-\-yes and a
+     lock so concurrent runs cannot interleave.
+.fi
+.SH QUICK START
+.PP
+1. Look before you leap:
+.PP
+.nf
+     sr find "old_api" \-p \(aq*.py\(aq
+     sr diff "old_api" "new_api" \-p \(aq*.py\(aq
+.fi
+.PP
+.nf
+   \(gafind\(ga shows file:line:col for every occurrence, \(gadiff\(ga shows the exact
+   unified diff a replace would produce.  Neither writes anything.
+.fi
+.PP
+2. Do it:
+.PP
+.nf
+     sr replace "old_api" "new_api" \-p \(aq*.py\(aq
+.fi
+.PP
+.nf
+   The scan phase counts the changes first; if more than 50 files would change
+   you are asked to confirm.  Originals are stored in a session under .sr/.
+.fi
+.PP
+3. Check and, if needed, undo:
+.PP
+.nf
+     git diff                       # or: sr diff \-\-session latest
+     sr rollback                # restores every file of the last session
+.fi
+.PP
+4. Useful variants:
+.PP
+.nf
+     sr replace "old" "new" \-\-dry\-run          # count only
+     sr replace "old" "new" \-\-interactive      # confirm every hunk
+     sr replace "old" "new" \-\-write=dir \-o out # write copies, touch nothing
+     sr replace "old" "new" \-\-json | jq .      # machine readable
+     sr replace "old" "new" \-C ~/project       # another directory
+.fi
+.PP
+5. Files are skipped for a reason.  Add -v to see why:
+.PP
+.nf
+     sr replace "old" "new" \-v
+.fi
+.PP
+.nf
+   You will see "binary content", "ignored by .gitignore", "excluded
+   directory (node_modules)" and so on.
+.fi
+.SH PATTERN MATCHING
+.PP
+Four pattern kinds, selected by a flag (literal is the default):
+.PP
+.nf
+  (default)   literal text.  \(ga.\(ga is a dot, \(ga(\(ga is a parenthesis.
+              Escape sequences \(rsn \(rst \(rsr \(rs0 \(rsxNN are interpreted, so
+              \(gasr replace \(aqa\(rstb\(aq \(aqa b\(aq\(ga matches a real tab.
+              The replacement is inserted verbatim — \(ga$1\(ga, \(ga\(rs1\(ga and \(ga&\(ga
+              stay literal, which makes config files safe to edit.
+              Use \-\-no\-escapes to disable escape processing.
+.fi
+.PP
+.nf
+  \-\-regex     Python regular expressions.  The replacement is a template:
+              \(rs1, \(rsg<name>, \(rsn and \(rs\(rs work as in re.sub.
+                sr replace \(aqversion = "(\(rsd+)"\(aq \(aqversion = "\(rs1.dev0"\(aq \-\-regex
+.fi
+.PP
+.nf
+  \-\-ere       POSIX Extended Regular Expressions (grep \-E / sed \-E syntax),
+              translated to Python: [[:digit:]], \(rs<, \(rs> and {m,n} work.
+              Useful for patterns copied from shell scripts.
+                sr replace \(aq[[:digit:]]{4}\-[[:digit:]]{4}\(aq \(aqXXXX\-XXXX\(aq \-\-ere
+.fi
+.PP
+.nf
+  \-\-pcre      Perl syntax: \(rsA, \(rsz, (?<name>...), atomic groups and
+              possessive quantifiers (Python 3.11+).
+                sr replace \(aq(?<=user=)[^&]+\(aq \(aqadmin\(aq \-\-pcre
+.fi
+.PP
+Modifiers (they apply to every kind):
+.PP
+.nf
+  \-i, \-\-ignore\-case      case\-insensitive
+  \-w, \-\-word\-boundary    whole words only (wraps the pattern in \(rsb)
+  \-m, \-\-multiline        the pattern may span lines (\(aq.\(aq matches newline)
+  \-L, \-\-line\-range R     restrict edits to lines R (10, 10\-20, 10\-, \-20)
+  \-M, \-\-max\-count N      at most N replacements per file
+  \-\-no\-global            only the first occurrence on each line
+  \-\-context N            context lines in previews and diffs (default 3)
+.fi
+.PP
+Counting rules
+.PP
+`matches` counts occurrences, not lines: a line with three hits counts three. That is what the summary reports and what --max-count limits.  Matches outside --line-range are reported separately and never replaced.
+.PP
+Because one engine does both the counting and the replacing, `-i` and `-w` cannot disagree between the two — a class of bug that made the reported number of replacements wrong in grep+sed based tools.
+.PP
+Escaping cheat sheet
+.PP
+.nf
+  literal dot            sr replace "1.2.3" "1.2.4"
+  regex dot              sr replace \(aq1\(rs.2\(rs.3\(aq \(aq1.2.4\(aq \-\-regex
+  literal backslash      sr replace \(aqC:\(rs\(rstemp\(aq \(aqD:\(rs\(rsdata\(aq \-\-no\-escapes
+  newline in the pattern sr replace \(aqa\(rsnb\(aq \(aqa b\(aq \-\-multiline
+  tab                    sr replace \(aq\(rst\(aq \(aq    \(aq
+  hex byte               sr replace \(aq\(rsx00\(aq \(aq\(aq \-\-binary
+.fi
+.SH TARGET SELECTION
+.PP
+The positional GLOB matches the file *name*:
+.PP
+.nf
+     sr replace "a" "b" \(aq*.py\(aq          # every .py below the target
+     sr replace "a" "b"                 # every text file (GLOB defaults to \(aq*\(aq)
+.fi
+.PP
+A GLOB containing `/` matches the path relative to the target and supports `**`:
+.PP
+.nf
+     sr replace "a" "b" \-\-include \(aqsrc/**/*.py\(aq
+.fi
+.PP
+Selection flags:
+.PP
+.nf
+  \-p, \-\-pattern GLOB     repeatable; several patterns are OR\-ed
+  \-\-file PATH            explicit file, bypasses pattern matching (repeatable)
+  \-\-files\-from FILE      read the file list from FILE (\(aq\-\(aq for stdin)
+  \-\-include GLOB         additional include filter (repeatable)
+  \-\-exclude GLOB         exclusion; wins over \-\-include and \-p (repeatable)
+  \-\-exclude\-dir NAME     prune a directory by name (repeatable)
+  \-C, \-\-target DIR       the root to operate on (default: cwd)
+  \-\-no\-recursive         only the target directory itself
+  \-\-max\-depth N          descend at most N levels
+  \-\-hidden               include dotfiles and dot\-directories
+  \-\-symlinks             follow symlinked files (skipped by default)
+  \-\-gitignore            honour .gitignore and core.excludesFile
+  \-\-max\-size SIZE        skip files larger than SIZE (default 100MB)
+  \-\-min\-size SIZE        skip files smaller than SIZE
+  \-\-newer\-than AGE       only files modified within AGE (24h, 7d, 30m)
+  \-\-older\-than AGE       only files not modified within AGE
+  \-\-binary               process files that look binary
+  \-\-no\-default\-excludes  do not apply the built\-in noise lists
+.fi
+.PP
+Defaults, and why
+.PP
+Excluded directories: .git .hg .svn node_modules vendor dist build target
+.PP
+.nf
+  __pycache__ .venv .cache .gradle .terraform .idea .vscode …
+.fi
+.PP
+Excluded file names: .DS_Store Thumbs.db *.orig *.rej *.bak *.backup *.swp *~ Hidden files: excluded (pass --hidden). Symlinks: skipped (pass --symlinks) so a link cannot cause the same file to be
+.PP
+.nf
+  edited twice or escape the target tree.
+.fi
+.PP
+Binary files: skipped by content sniffing (NUL byte or >30% non-text bytes in
+.PP
+.nf
+  the first 8 KiB), not by extension alone.
+.fi
+.PP
+.sr/ (the session store) is always pruned, which keeps `rollback` idempotent.
+.PP
+Feed the file list from another tool
+.PP
+.nf
+     git ls\-files \(aq*.py\(aq | sr replace "old" "new" \-\-files\-from \-
+     sr find "TODO" \-\-porcelain | cut \-d: \-f1 | sort \-u > files
+     sr replace "old" "new" \-\-files\-from files
+.fi
+.PP
+Why `--files-from -` is safer than a glob: the list is exactly what git tracks, so generated files, vendored copies and ignored paths cannot slip in.
+.SH BACKUPS AND SESSIONS
+.PP
+Every mutating run creates a *session*:
+.PP
+.nf
+  <target>/.sr/sessions/<id>/
+    manifest.json    who, what, when; per\-file hashes, sizes, mode, uid/gid
+    journal.jsonl    append\-only op log (survives a crash mid\-run)
+    files/<xx>/<sha256>.dat   the original bytes, content addressed
+    diffs/<path>.diff         the unified diff of the change
+    .lock                     advisory lock, held for the duration of the run
+.fi
+.PP
+Content addressing means identical originals are stored once, so a run that touches 10 000 files sharing the same header costs one blob.  Every blob is verified on read: a corrupt or truncated backup is reported instead of silently restoring garbage.
+.PP
+Where sessions live
+.PP
+Default: <target>/.sr.  Add `.sr/` to .gitignore. Elsewhere: --backup-dir ~/sr-backups/myproject (also useful when the target is read-only or when you do not want to touch the repository at all).
+.PP
+Retention
+.PP
+.nf
+  \-\-keep N           keep the newest N sessions (default 20, 0 = never prune)
+  \-\-keep\-age AGE     also drop sessions older than AGE (e.g. 30d)
+  sr sessions size     how much disk the store uses
+  sr sessions prune \-\-keep 10 \-\-keep\-age 30d
+.fi
+.PP
+Pruning runs automatically at the end of a mutating run, so the store cannot grow without bound.
+.PP
+Disable backups
+.PP
+.nf
+  \-\-no\-backup   faster and no .sr/ directory, but \(garollback\(ga will not work.
+                The right choice inside a clean git working tree, where
+                \(gagit checkout \-\- .\(ga is your rollback.
+.fi
+.PP
+What is *not* in a session
+.PP
+Renames are journalled (as from/to pairs) but the file content is not copied again — the content is unchanged.  --write=dir and --write=stdout runs create no session because no original is modified.
+.SH ROLLBACK
+.PP
+.nf
+  sr rollback                        # newest session
+  sr rollback latest
+  sr rollback 9f3a1c                 # unique id suffix
+  sr rollback 20260131T120530Z\-9f3a1c
+  sr rollback 2                      # the second newest (ordinal)
+  sr rollback latest \-\-dry\-run       # show what would be restored
+  sr rollback latest \-\-file src/app.py
+  sr rollback latest \-\-force \-\-yes   # unattended, overwrite drifted files
+.fi
+.PP
+How a session is referenced
+.PP
+full id → unique suffix → ordinal (1 = newest) → `latest`.  Ambiguous suffixes are reported with the candidate list instead of guessing.
+.PP
+Drift detection
+.PP
+For every file the manifest stores the SHA-256 of the content *after* the run. Before restoring, sr hashes the current file:
+.PP
+.nf
+  * unchanged  → restored silently
+  * changed    → reported as drifted and SKIPPED, unless \-\-force
+  * missing    → restored (the session recreates the directory)
+.fi
+.PP
+That is what makes `rollback` safe to run hours later: it will not silently throw away edits you made in the meantime.
+.PP
+The rollback is itself reversible
+.PP
+Unless --no-safety-snapshot is given, sr records the pre-rollback content in a new session of kind `rollback`.  So:
+.PP
+.nf
+  sr rollback                # oops, wrong session
+  sr sessions                # the top entry is the safety snapshot
+  sr rollback <snapshot\-id>  # back to the state before the rollback
+.fi
+.PP
+Renames recorded in the session are undone in reverse order (deepest first), so renaming a directory back cannot be blocked by its own children.
+.PP
+Exit codes
+.PP
+.nf
+  0  everything restored
+  4  at least one file could not be restored (permissions, missing blob)
+.fi
+.PP
+Rollback refuses to touch paths outside the session root, paths containing control characters, and anything under /proc, /sys or /dev.
+.SH RENAMING FILES
+.PP
+.nf
+  sr rename ".txt" ".md" \-p \(aq*.txt\(aq
+  sr rename "IMG_" "photo\-" \-p \(aqIMG_*\(aq
+  sr rename \-\-regex \(aq^(.*)\(rs.jpeg$\(aq \(aq\(rs1.jpg\(aq
+  sr replace "old" "new" \-\-rename \-p \(aq*.py\(aq      # content *and* names
+  sr rename "a" "b" \-\-dry\-run                    # plan only
+.fi
+.PP
+Semantics
+.PP
+* The replacement is applied to the file *name* only, never to the directory
+.PP
+.nf
+  part of the path, so a rename can never move a file to another directory.
+.fi
+.PP
+* Directories are renamed too (deepest path first, so children keep valid
+.PP
+.nf
+  paths).  With \(gasr replace \-\-rename\(ga directories are left alone unless
+  \-\-directories is given, because renaming folders as a side effect of a
+  content edit is surprising.
+.fi
+.PP
+* New names containing a path separator are refused. * Collisions are detected before anything is executed: if two files would get
+.PP
+.nf
+  the same new name, both are skipped and reported instead of one overwriting
+  the other.  An existing target is also refused unless \-\-force.
+.fi
+.PP
+* Renames are journalled, so `sr rollback` undoes them in reverse order.
+.PP
+Rename + content in one pass
+.PP
+.nf
+  sr replace "MyClass" "YourClass" \-\-rename \-p \(aq*.py\(aq
+.fi
+.PP
+The content pass runs first, then the rename pass, both inside one session — so a single `sr rollback` restores the old content *and* the old names.
+.SH INTERACTIVE MODE
+.PP
+.nf
+  sr replace "old" "new" \-\-interactive
+  sr replace "old" "new" \-I \-p \(aq*.py\(aq \-\-context 5
+.fi
+.PP
+For every file, changes are grouped into hunks (matches within --context lines of each other).  Each hunk is rendered as a diff and you answer:
+.PP
+.nf
+  y / enter   apply this hunk
+  n           skip it
+  a           apply this hunk and every remaining one in this file
+  d           show the diff again
+  q           skip the rest of the file
+.fi
+.PP
+Hunks you reject are not written; the file is rewritten once, with only the accepted hunks applied.  The session records the actual result, so `rollback` restores the true original.
+.PP
+Non-interactive contexts
+.PP
+When stdin is not a terminal, --interactive degrades to "skip the remaining hunks" with a warning rather than blocking forever — pass --yes to apply everything unattended.  `--yes` also answers the "N files will change" confirmation, which is what CI needs.
+.PP
+Related safety valves
+.PP
+.nf
+  \-\-dry\-run            count and preview, write nothing
+  \-\-diff               show the diff of every change
+  \-\-confirm\-threshold N  ask before writing when > N files would change
+  \-\-write=dir \-o out   write copies instead of touching the originals
+.fi
+.SH MACHINE\-READABLE OUTPUT
+.PP
+--json
+.PP
+.nf
+  One JSON document on stdout.  Every diagnostic (progress, warnings, errors)
+  goes to stderr, so \(gasr replace ... \-\-json | jq\(ga is always safe.
+.fi
+.PP
+.nf
+  {
+    "version": "7.0.0",
+    "dry_run": false,
+    "root": "/home/me/project",
+    "search": "old", "replacement": "new", "pattern_kind": "fixed",
+    "duration_seconds": 0.412,
+    "totals": {
+      "scanned": 128, "changed": 7, "unchanged": 121, "skipped": 2,
+      "failed": 0, "matches": 19, "replacements": 19, "renamed": 0,
+      "bytes_read": 421887, "bytes_written": 20144
+    },
+    "session": { "id": "20260131T120530Z\-9f3a1c", "directory": "...", ... },
+    "files": [
+      { "path": "...", "rel_path": "src/app.py", "status": "changed",
+         "matches": 3, "replacements": 3, "encoding": "utf\-8",
+         "size_before": 4012, "size_after": 4015,
+         "diff": { "added": 3, "removed": 3, "changed": 6 } }
+    ],
+    "errors": [], "warnings": [], "exit_code": 0
+  }
+.fi
+.PP
+.nf
+  Add \-\-diff to include the patch text of every file as "patch".
+.fi
+.PP
+--porcelain
+.PP
+.nf
+  Stable \(gapath:line:col:kind:text\(ga records, one per line, designed to be cut
+  and piped:
+.fi
+.PP
+.nf
+     sr find "old" \-\-porcelain | cut \-d: \-f1 | sort \-u
+.fi
+.PP
+Exit codes (see `sr help exit-codes`)
+.PP
+.nf
+  0 success / at least one match      3 no match
+  1 runtime error                     4 rollback failed
+  2 usage error                       5 update failed
+                                      6 selftest failed
+                                    130 interrupted
+.fi
+.PP
+CI recipe
+.PP
+.nf
+  set \-euo pipefail
+  sr replace "$OLD" "$NEW" \-p \(aq*.py\(aq \-\-yes \-\-json \-\-no\-update\-check > sr.json
+  jq \-e \(aq.totals.failed == 0\(aq sr.json
+  jq \-r \(aq.files[].rel_path\(aq sr.json
+.fi
+.PP
+The `--no-update-check` flag keeps the network out of CI, and `--yes` avoids a prompt that would otherwise hang the job (sr refuses to prompt when stdin is not a terminal and exits non-zero instead).
+.SH CONFIGURATION FILES
+.PP
+Precedence, lowest to highest:
+.PP
+.nf
+  1. built\-in defaults
+  2. /etc/sr/sr.conf                     system wide
+  3. $XDG_CONFIG_HOME/sr/sr.conf         user (default ~/.config/sr/sr.conf)
+  4. <repo root>/.srrc, <target>/.srrc,  project (walked upwards, stops at
+     <target>/.sr/sr.conf                the repository boundary)
+  5. $SR_CONFIG                          an extra file
+  6. \-\-config\-file FILE                  an extra file, explicitly
+  7. SR_* environment variables
+  8. \-\-config KEY=VALUE
+  9. command line flags
+.fi
+.PP
+Syntax — a small, forgiving INI dialect:
+.PP
+.nf
+    # a comment
+    ignore\-case = true          # applies to every command
+    exclude = *.min.js, dist    # comma or whitespace separated list
+.fi
+.PP
+.nf
+    [replace]                   # applies to \(gasr replace\(ga only
+    backup = false
+    confirm\-threshold = 500
+.fi
+.PP
+.nf
+    [find]
+    context = 1
+.fi
+.PP
+Rules:
+.PP
+.nf
+  * keys are the option names (\(aq\-\(aq and \(aq_\(aq are interchangeable)
+  * \(gakey\(ga alone means \(gakey = true\(ga
+  * booleans accept true/false/yes/no/on/off/1/0
+  * sizes accept 512, 4KB, 10MB, 1.5GiB; durations accept 30s, 5m, 7d
+  * repeating a key builds a list
+  * an unknown key or an invalid value is a hard error with file:line —
+    a silently ignored typo is exactly what a bulk\-edit tool must not have
+.fi
+.PP
+Commands:
+.PP
+.nf
+  sr config list \-\-show\-origin    every option, its value, where it came from
+  sr config show confirm\-threshold
+  sr config init                  write a documented template
+  sr config init \-\-file .srrc     …into the project instead
+  sr config path                  the files sr would read, in order
+  sr config validate              parse every file and report errors
+.fi
+.PP
+A project .srrc is worth committing: it makes the team's exclusion list, confirmation threshold and backup policy part of the repository instead of tribal knowledge.
+.SH SELF\-UPDATE
+.PP
+.nf
+  sr update \-\-check          is there a newer release?
+  sr update                  install it
+  sr update \-\-version 7.1.0  install a specific version
+  sr update \-\-channel prerelease
+  sr update \-\-source npm     ask the npm registry instead of GitHub
+  sr update \-\-repo owner/name \-\-path /usr/local/bin/sr
+.fi
+.PP
+What sr detects
+.PP
+`sr doctor` prints the installation type.  It decides how an update is applied:
+.PP
+.nf
+  standalone   a single executable file (zipapp or installed script).  sr can
+               update itself: download → verify → smoke test → replace.
+  pip / pipx   the environment owns the files, so sr prints the exact upgrade
+               command instead of touching site\-packages.
+  npm          prints \(ganpm install \-g sr\-search\-replace@latest\(ga.
+  source       a git checkout — updating is refused, use \(gagit pull && make\(ga.
+.fi
+.PP
+The update sequence for a standalone install
+.PP
+.nf
+  1. ask the GitHub releases API for the newest release on the channel
+     (SR_GITHUB_TOKEN/GITHUB_TOKEN raises the rate limit)
+  2. compare versions with semver rules; stop if not newer (unless \-\-version)
+  3. download the \(gasr.pyz\(ga asset to a temporary directory
+  4. verify its SHA\-256 against the published \(gasr.pyz.sha256\(ga
+     — a mismatch aborts the update and installs nothing
+  5. smoke test: run \(gapython3 <downloaded> \-\-version\(ga in a subprocess
+  6. copy the current file to \(ga<file>.bak\(ga
+  7. atomically replace the file (write sibling + rename) and keep its mode
+.fi
+.PP
+Every step either succeeds or leaves the current installation untouched.
+.PP
+Background check
+.PP
+At most once per 24h, sr looks for a newer release on a daemon thread with a 2.5s budget and caches the answer under $XDG_CACHE_HOME/sr/update-check.json. It never blocks a run: if the network is slow or absent, nothing is printed and the cache is used next time.  Turn it off with --no-update-check or SR_NO_UPDATE_CHECK=1 (a good idea in CI and on air-gapped machines).
+.PP
+Pinning
+.PP
+Install a specific version and disable the check to pin:
+.PP
+.nf
+     sr update \-\-version 7.0.0
+     export SR_NO_UPDATE_CHECK=1
+.fi
+.PP
+Offline / air-gapped
+.PP
+Download the two release assets on a connected machine, copy them over, then:
+.PP
+.nf
+     sha256sum \-c sr.pyz.sha256
+     install \-m 0755 sr.pyz /usr/local/bin/sr
+.fi
+.SH PERFORMANCE
+.PP
+Where the time goes, in order of impact:
+.PP
+.nf
+  1. Discovery.  Pruning is the whole game: sr prunes excluded directories
+     *before* descending, so a tree with node_modules costs nothing.  Narrow
+     the target with \-C and \-p instead of scanning everything.
+  2. Reading and decoding files.  Every candidate is fully read once.  Use
+     \-\-max\-size, \-\-min\-size, \-\-newer\-than and \-\-include to cut the set.
+  3. Matching.  A literal pattern is compiled to a regex once and reused for
+     every file, so per\-file cost is one search over the buffer.
+  4. Writing.  Each changed file is written once, with fsync of the file and
+     (for atomic writes) of the directory.
+.fi
+.PP
+Practical numbers
+.PP
+On a laptop SSD, a literal replacement over ~10 000 text files (≈120 MB) takes a few seconds.  The scan phase doubles the read cost of a mutating run — that is the price of an accurate confirmation prompt and summary, and it is what makes `--dry-run` free of side effects.
+.PP
+Tips
+.PP
+.nf
+  * Prefer \-\-files\-from with a list from git/ripgrep over scanning the tree.
+  * Use \-\-no\-progress and \-q in scripts; the progress bar is a TTY\-only cost.
+  * \-\-no\-backup skips the blob store entirely (use it inside a clean git tree).
+  * \-\-keep 5 keeps the session store small on long\-lived projects.
+  * Split huge runs per directory: sessions are per\-target, so a rollback then
+    affects only that directory.
+  * \-\-no\-lock removes one lock file per run; only relevant for thousands of
+    tiny invocations.
+.fi
+.PP
+What sr deliberately does not do
+.PP
+No parallelism by default.  A bulk rewrite is I/O bound, and parallel writers make the ordering of the journal (and therefore rollback) harder to reason about.  If you need throughput, shard by directory with -C and run the shards yourself — each shard gets its own session and can be rolled back independently.
+.SH SECURITY MODEL
+.PP
+Threat model: sr runs with your own privileges over your own files, so the risks are accidental destruction, unintended scope, and supply-chain attacks on the update path — not remote exploitation.
+.PP
+Accidental destruction
+.PP
+.nf
+  * literal matching by default: a pattern is never silently a regex
+  * binary files are skipped unless \-\-binary is given
+  * undecodable files are skipped and reported, never rewritten with a guessed
+    encoding
+  * the scan phase completes before the first write, so the confirmation prompt
+    states real numbers
+  * a confirmation prompt above \-\-confirm\-threshold (default 50 files)
+  * VCS directories, build output and .sr/ are pruned by default
+  * symlinks are skipped by default, so a link cannot smuggle a file outside
+    the target tree into the edit set
+  * running as root is refused unless \-\-allow\-root
+  * rewriting / , /etc, /usr or $HOME directly is refused unless \-\-force
+  * every mutating run is journalled and reversible; rollbacks are reversible
+    too (safety snapshot)
+  * rollback refuses to overwrite files that drifted after the session
+.fi
+.PP
+Unintended scope
+.PP
+.nf
+  * \-v prints every skipped candidate with the reason, so an empty result is
+    explainable rather than mysterious
+  * \-\-dry\-run and \-\-diff make the blast radius visible before committing
+  * \-\-write=dir writes copies and touches nothing
+.fi
+.PP
+Update path (supply chain)
+.PP
+.nf
+  * HTTPS only; no plaintext fallback
+  * the downloaded asset\(aqs SHA\-256 is verified against the published
+    sr.pyz.sha256; a mismatch aborts and installs nothing
+  * the download is smoke\-tested in a subprocess before it replaces anything
+  * the previous file is kept as <file>.bak
+  * \-\-no\-verify exists for mirrors without checksums and warns loudly
+  * the background check is read\-only, cached, non\-blocking and can be disabled
+    entirely (SR_NO_UPDATE_CHECK=1)
+.fi
+.PP
+Data handling
+.PP
+.nf
+  * file content never leaves the machine; the only network calls are the
+    release lookup and the release download
+  * sessions store original bytes under <target>/.sr — treat that directory
+    with the same care as the files themselves (it is not encrypted), and add
+    it to .gitignore so backups are never committed
+  * no telemetry, no analytics, no crash reporting: a crash prints a traceback
+    locally and suggests opening an issue
+.fi
+.PP
+Reporting a vulnerability
+.PP
+.nf
+  See SECURITY.md.  Please do not open a public issue for something that could
+  destroy data; use the contact address listed there.
+.fi
+.SH COMPATIBILITY AND MIGRATION
+.PP
+Python
+.PP
+.nf
+  Requires 3.9+.  Developed and CI\-tested on 3.9, 3.11, 3.12 and 3.13.
+  No third\-party runtime dependencies.
+.fi
+.PP
+Operating systems
+.PP
+.nf
+  Linux and macOS are supported.  Windows works under WSL2; native Windows is
+  not supported because sr relies on POSIX rename semantics, \(gaos.chown\(ga,
+  advisory locks and inode preservation.
+.fi
+.PP
+Relationship to sr 6.x (the bash implementation)
+.PP
+sr 7 is a rewrite in Python with a redesigned command line.  The 6.x flags are not accepted.  Migration table:
+.PP
+.nf
+  6.x                              7.x
+  \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-   \-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-
+  sr "*.py" "a" "b"                sr replace "a" "b" \-p \(aq*.py\(aq
+  sr \-i / \-\-ignore\-case            sr replace \-i …            (unchanged)
+  sr \-E / \-\-extended\-regex         sr replace \-\-ere …
+  sr \-w / \-\-word\-boundary          sr replace \-w …            (unchanged)
+  sr \-m / \-\-multiline              sr replace \-m …            (unchanged)
+  sr \-nr / \-\-no\-recursive          sr replace \-\-no\-recursive
+  sr \-nb / \-\-no\-backup             sr replace \-\-no\-backup
+  sr \-nbf / \-\-no\-backup\-folder     sr replace \-\-backup\-dir <dir>
+  sr \-fb / \-\-force\-backup          (backups are on by default)
+  sr \-xs / \-\-max\-size MB           sr replace \-\-max\-size 10MB
+  sr \-xp / \-\-exclude\-patterns      sr replace \-\-exclude GLOB (repeatable)
+  sr \-xd / \-\-exclude\-dirs          sr replace \-\-exclude\-dir NAME (repeatable)
+  sr \-sd / \-\-search\-dir DIR        sr replace \-C DIR
+  sr \-od / \-\-output\-dir DIR        sr replace \-\-write=dir \-o DIR
+  sr \-mode copy                    sr replace \-\-write=dir \-o DIR
+  sr \-mode backup_only             (covered by \-\-dry\-run + sessions)
+  sr \-\-dry\-run                     sr replace \-\-dry\-run       (unchanged)
+  sr \-\-rollback                    sr rollback
+  sr \-\-rollback=DIR                sr rollback <session\-id>
+  sr \-\-rollback\-list               sr sessions
+  sr \-\-binary                      sr replace \-\-binary        (unchanged)
+  sr \-\-binary\-method=…             (single robust sniffer; no knob)
+  sr \-\-find\-opts/\-\-sed\-opts/…      removed: flags were injected into a shell
+                                   command line, which was unsafe.  Use the
+                                   typed equivalents (\-\-include, \-\-max\-depth,
+                                   \-\-newer\-than, …).
+  sr \-\-no\-global                   sr replace \-\-no\-global     (unchanged)
+  sr \-\-delimiter CHAR              removed: no shell quoting is involved, so
+                                   no delimiter can collide any more.
+  SR_* environment variables       SR_* still exist, one per option, but the
+                                   names follow the new option names.
+.fi
+.PP
+Behavioural changes worth knowing
+.PP
+.nf
+  * Patterns are literal by default.  6.x escaped the search string for sed,
+    which also meant \(ga\-E\(ga was effectively broken; 7.x separates literal and
+    regex cleanly.
+  * Replacement counts are occurrences, not matching lines.
+  * \(ga\-\-dry\-run\(ga writes nothing at all (6.x created a backup directory).
+  * Sessions live in \(ga.sr/\(ga instead of \(gasr.backup.<timestamp>/\(ga in the project
+    root, and old 6.x backup directories are not read.
+  * Exit codes are documented and stable; "no match" is 3, not 1.
+.fi
+.PP
+6.x sessions
+.PP
+`sr.backup.*` directories from 6.x are left untouched.  Restore from them with the 6.x script (still downloadable from the v6.1.0 release assets) or copy the files back by hand — the layout is a plain directory mirror.
+.SH TROUBLESHOOTING
+.PP
+Start here: `sr doctor` checks the interpreter, the installation type, the config files, the session store, filesystem capabilities (atomic rename, inode preservation, symlinks, permissions, unicode names), locking, disk space and the network.  Then `sr selftest` proves the whole pipeline works end to end.
+.PP
+"no files matched the target selection"
+.PP
+.nf
+  * Is the glob quoted?  \(gasr replace a b *.py\(ga lets the *shell* expand
+    \(ga*.py\(ga; quote it: \(ga\(aq*.py\(aq\(ga.
+  * Are the files hidden or inside an excluded directory?  Add \-v to see every
+    skipped candidate and the reason.
+  * Is \-\-gitignore hiding them?  Check with \(gasr find x \-\-gitignore \-v\(ga.
+  * Wrong root?  \(ga\-C <dir>\(ga instead of relying on the cwd.
+.fi
+.PP
+"skipped: binary content"
+.PP
+.nf
+  sr sniffs the first 8 KiB: a NUL byte or >30% non\-text bytes means binary.
+  UTF\-16 files without a BOM look binary.  Fix with \-\-encoding utf\-16 (then the
+  file is decoded, not sniffed) or \-\-binary (forces processing).
+.fi
+.PP
+"cannot decode as utf-8"
+.PP
+.nf
+  The file is not UTF\-8.  Use \-\-encoding cp1251 (or whatever it really is), or
+  \-\-encoding\-error replace to force a lossy decode.  sr never guesses silently:
+  a wrong guess would corrupt the file.
+.fi
+.PP
+Line endings changed
+.PP
+.nf
+  They are preserved by default (per file, LF/CRLF/CR).  \-\-line\-endings lf
+  normalises on purpose.  Mixed endings inside one file keep the dominant one.
+.fi
+.PP
+Rollback says "file changed after the session"
+.PP
+.nf
+  Correct behaviour: the file was edited after the session was recorded, so
+  restoring would throw those edits away.  Review with
+  \(gasr diff \-\-session <id>\(ga, then either accept the loss with \-\-force or
+  restore the single file with \-\-file <path> \-\-force.
+.fi
+.PP
+"another sr process is using <session>"
+.PP
+.nf
+  A lock file is held.  If no sr is running, the previous run was killed;
+  sr breaks locks whose owner process is gone, otherwise delete
+  \(ga.sr/sessions/<id>/.lock\(ga.
+.fi
+.PP
+Everything is slower than expected
+.PP
+.nf
+  * \-v shows the discovery statistics (candidates, filtered, directories, time)
+  * check that node_modules/dist/vendor are being pruned
+  * \(ga\-\-no\-backup\(ga removes the blob writes if you have git as a safety net
+.fi
+.PP
+sr crashed
+.PP
+.nf
+  Re\-run with SR_DEBUG=1 for a traceback and open an issue with the output of
+  \(gasr doctor \-\-json\(ga attached.
+.fi
+.PP
+Getting help
+.PP
+.nf
+  sr help topics        the manual\(aqs index
+  sr help \-\-<option>    one option in depth, with an example
+  sr <command> \-\-help   one command in full
+.fi
+.SH EXAMPLES
+.PP
+Basics
+.PP
+.nf
+  sr replace "old_api" "new_api" \-p \(aq*.py\(aq
+  sr replace "old" "new"                        # every text file below cwd
+  sr replace "old" "new" \-C ~/projects/api      # another directory
+  sr replace "old" "new" \-\-file src/a.py \-\-file src/b.py
+  git ls\-files \(aq*.py\(aq | sr replace "old" "new" \-\-files\-from \-
+.fi
+.PP
+Looking before leaping
+.PP
+.nf
+  sr find "TODO" \-p \(aq*.py\(aq
+  sr find "TODO" \-\-count
+  sr find "TODO" \-l                             # file names only
+  sr find "TODO" \-A 2 \-B 2                      # with context
+  sr diff "old" "new" \-p \(aq*.md\(aq
+  sr replace "old" "new" \-\-dry\-run
+  sr replace "old" "new" \-\-dry\-run \-\-json | jq \(aq.totals\(aq
+.fi
+.PP
+Regular expressions
+.PP
+.nf
+  sr replace \(aqversion = "(\(rsd+\(rs.\(rsd+)"\(aq \(aqversion = "\(rs1.post0"\(aq \-\-regex \-p \(aqsetup.py\(aq
+  sr replace \(aqimport old\(rsb\(aq \(aqimport new\(aq \-\-regex \-p \(aq*.py\(aq
+  sr replace \(aq[[:digit:]]{3}\-[[:digit:]]{4}\(aq \(aqXXX\-XXXX\(aq \-\-ere
+  sr replace \(aq(?<=password=)\(rsS+\(aq \(aqchangeme\(aq \-\-pcre \-p \(aq*.env\(aq \-\-hidden
+  sr replace "cat" "dog" \-w                     # whole words only
+  sr replace "Warning" "Notice" \-i
+.fi
+.PP
+Scoped edits
+.PP
+.nf
+  sr replace "old" "new" \-\-line\-range 1\-30 \-p \(aqheader*\(aq
+  sr replace "TODO" "DONE" \-\-max\-count 1
+  sr replace "a" "b" \-\-no\-global                # first per line
+  sr replace "a" "b" \-\-include \(aqsrc/**/*.py\(aq \-\-exclude \(aqsrc/vendor/*\(aq
+  sr replace "a" "b" \-\-max\-depth 2 \-\-hidden
+  sr replace "a" "b" \-\-newer\-than 7d
+.fi
+.PP
+Safety and review
+.PP
+.nf
+  sr replace "old" "new" \-\-interactive
+  sr replace "old" "new" \-\-write=dir \-\-output\-dir out
+  sr replace "old" "new" \-\-confirm\-threshold 5
+  sr sessions
+  sr diff \-\-session latest
+  sr rollback latest \-\-dry\-run
+  sr rollback 9f3a1c \-\-file src/app.py
+  sr sessions prune \-\-keep 10 \-\-keep\-age 30d
+.fi
+.PP
+Renaming
+.PP
+.nf
+  sr rename ".txt" ".md" \-p \(aq*.txt\(aq
+  sr rename \-\-regex \(aq^(.*)\(rs.jpeg$\(aq \(aq\(rs1.jpg\(aq
+  sr replace "MyClass" "YourClass" \-\-rename \-p \(aq*.py\(aq
+.fi
+.PP
+Encodings and line endings
+.PP
+.nf
+  sr replace "old" "new" \-\-encoding cp1251 \-p \(aq*.txt\(aq
+  sr replace "old" "new" \-\-encoding utf\-16 \-\-hidden
+  sr replace "\(rsr\(rsn" "\(rsn" \-\-multiline \-p \(aq*.sh\(aq   # CRLF → LF
+  sr replace "old" "new" \-\-line\-endings lf \-p \(aq*.py\(aq
+.fi
+.PP
+Automation
+.PP
+.nf
+  sr replace "old" "new" \-\-yes \-\-json \-\-no\-update\-check > report.json
+  sr find "old" \-\-porcelain | cut \-d: \-f1 | sort \-u
+  sr replace "1.2.3" "1.2.4" \-p \(aqpackage.json\(aq \-p \(aqpyproject.toml\(aq \-\-no\-backup
+  SR_IGNORE_CASE=true sr replace "warning" "notice" \-p \(aq*.md\(aq
+.fi
+.PP
+Real-world migrations
+.PP
+.nf
+  # bump a version everywhere it is declared
+  sr replace \(aq"version": "6.1.0"\(aq \(aq"version": "7.0.0"\(aq \-p package.json
+  # move an import path across a monorepo
+  sr replace "from app.utils import" "from core.utils import" \-\-gitignore
+  # retire a deprecated API, then review what is left
+  sr replace "legacy_call(" "modern_call(" \-p \(aq*.py\(aq && sr find "legacy_call"
+.fi
+.SH COMMANDS
+.TP
+.B replace (aliases: r)
+Search and replace text in files.
+.br
+Usage: sr replace [GLOB...] SEARCH REPLACE [options]
+.TP
+.B find (aliases: search, grep)
+Show matches without changing anything.
+.br
+Usage: sr find [GLOB...] SEARCH [options]
+.TP
+.B diff
+Preview changes as a unified diff.
+.br
+Usage: sr diff [GLOB...] SEARCH REPLACE | \-\-session ID [options]
+.TP
+.B rename (aliases: mv)
+Rename files and directories by pattern.
+.br
+Usage: sr rename [GLOB...] SEARCH REPLACE [options]
+.TP
+.B rollback (aliases: undo, restore)
+Restore files from a session backup.
+.br
+Usage: sr rollback [SESSION] [\-\-file PATH] [\-\-dry\-run] [\-\-force]
+.TP
+.B sessions (aliases: backups)
+List, inspect and prune sessions.
+.br
+Usage: sr sessions [list|show|delete|prune|size] [SESSION]
+.TP
+.B update (aliases: upgrade)
+Check for and install a newer sr release.
+.br
+Usage: sr update [\-\-check] [\-\-version X] [\-\-channel stable|prerelease]
+.TP
+.B doctor (aliases: diagnose)
+Check the installation and environment.
+.br
+Usage: sr doctor [\-\-json] [\-\-offline]
+.TP
+.B completions
+Print shell completion scripts.
+.br
+Usage: sr completions [bash|zsh|fish] [\-\-install]
+.TP
+.B config
+Inspect and manage configuration files.
+.br
+Usage: sr config [list|show|init|path|validate] [KEY]
+.TP
+.B selftest (aliases: smoke)
+Run the built\-in smoke test.
+.br
+Usage: sr selftest [\-\-quick] [\-\-json]
+.TP
+.B help
+Show the help system (topics, options, examples).
+.br
+Usage: sr help [TOPIC|COMMAND|\-\-OPTION]
+.SH OPTIONS
+Options are declared once in the source and drive the parser, the
+configuration files, the shell completions and this page.
+.SS Target Selection
+.TP
+.B \-C, \-\-target DIR
+Directory to operate on (default: the current directory). Default: ..
+.br
+Applies to: replace, find, diff, rename. Config key: target. Env: SR_TARGET.
+.TP
+.B \-p, \-\-pattern GLOB
+Only files whose name matches GLOB (repeatable). Default: every text file.
+.br
+Applies to: replace, find, diff, rename. Config key: pattern. Env: SR_PATTERN.
+.TP
+.B \-\-file PATH
+Explicit file to process, bypassing pattern matching (repeatable).
+.br
+Applies to: replace, find, diff, rename. Config key: file. Env: SR_FILE.
+.TP
+.B \-\-files\-from FILE
+Read the list of target files from FILE, one per line (\(aq\-\(aq for stdin).
+.br
+Applies to: replace, find, diff, rename. Config key: files_from. Env: SR_FILES_FROM.
+.TP
+.B \-\-include GLOB
+Additional include glob, may contain \(aq/\(aq and \(aq**\(aq (repeatable).
+.br
+Applies to: replace, find, diff, rename. Config key: include. Env: SR_INCLUDE.
+.TP
+.B \-\-exclude GLOB
+Exclude glob; wins over \-\-include and \-\-pattern (repeatable).
+.br
+Applies to: replace, find, diff, rename. Config key: exclude. Env: SR_EXCLUDE.
+.TP
+.B \-\-exclude\-dir NAME
+Prune a directory by name (repeatable; adds to the built\-in list).
+.br
+Applies to: replace, find, diff, rename. Config key: exclude_dir. Env: SR_EXCLUDE_DIR.
+.TP
+.B \-\-no\-default\-excludes
+Do not apply the built\-in exclude lists (node_modules, dist, *.bak …).
+.br
+Applies to: replace, find, diff, rename. Config key: no_default_excludes. Env: SR_NO_DEFAULT_EXCLUDES.
+.TP
+.B \-1, \-\-no\-recursive
+Only the target directory itself, no subdirectories.
+.br
+Applies to: replace, find, diff, rename. Config key: no_recursive. Env: SR_NO_RECURSIVE.
+.TP
+.B \-\-max\-depth N
+Descend at most N levels below the target directory.
+.br
+Applies to: replace, find, diff, rename. Config key: max_depth. Env: SR_MAX_DEPTH.
+.TP
+.B \-\-hidden
+Also process dotfiles and dot\-directories.
+.br
+Applies to: replace, find, diff, rename. Config key: hidden. Env: SR_HIDDEN.
+.TP
+.B \-\-symlinks
+Follow symlinked files (they are skipped by default).
+.br
+Applies to: replace, find, diff, rename. Config key: symlinks. Env: SR_SYMLINKS.
+.TP
+.B \-\-gitignore
+Honour .gitignore files (including the global excludesfile).
+.br
+Applies to: replace, find, diff, rename. Config key: gitignore. Env: SR_GITIGNORE.
+.TP
+.B \-\-max\-size SIZE
+Skip files larger than SIZE (default 100MB; a bare number means megabytes). Default: 104857600.
+.br
+Applies to: replace, find, diff, rename. Config key: max_size. Env: SR_MAX_SIZE.
+.TP
+.B \-\-min\-size SIZE
+Skip files smaller than SIZE.
+.br
+Applies to: replace, find, diff, rename. Config key: min_size. Env: SR_MIN_SIZE.
+.TP
+.B \-\-newer\-than AGE
+Only files modified within AGE (e.g. 24h, 7d, 30m).
+.br
+Applies to: replace, find, diff, rename. Config key: newer_than. Env: SR_NEWER_THAN.
+.TP
+.B \-\-older\-than AGE
+Only files not modified within AGE.
+.br
+Applies to: replace, find, diff, rename. Config key: older_than. Env: SR_OLDER_THAN.
+.TP
+.B \-\-binary
+Process files that look binary instead of skipping them.
+.br
+Applies to: replace, find, diff, rename. Config key: binary. Env: SR_BINARY.
+.SS Matching
+.TP
+.B \-R, \-\-regex
+Treat PATTERN as a Python regular expression.
+.br
+Applies to: replace, find, diff, rename. Config key: regex. Env: SR_REGEX.
+.TP
+.B \-\-ere
+Treat PATTERN as a POSIX Extended Regular Expression (grep \-E syntax).
+.br
+Applies to: replace, find, diff, rename. Config key: ere. Env: SR_ERE.
+.TP
+.B \-\-pcre
+Treat PATTERN as a Perl\-compatible regular expression.
+.br
+Applies to: replace, find, diff, rename. Config key: pcre. Env: SR_PCRE.
+.TP
+.B \-\-pattern\-kind KIND
+Explicit pattern kind: fixed, regex, ere or pcre. One of: fixed, regex, ere, pcre. Default: fixed.
+.br
+Applies to: replace, find, diff, rename. Config key: pattern_kind. Env: SR_PATTERN_KIND.
+.TP
+.B \-i, \-\-ignore\-case
+Case\-insensitive matching.
+.br
+Applies to: replace, find, diff, rename. Config key: ignore_case. Env: SR_IGNORE_CASE.
+.TP
+.B \-w, \-\-word\-boundary
+Match whole words only.
+.br
+Applies to: replace, find, diff, rename. Config key: word_boundary. Env: SR_WORD_BOUNDARY.
+.TP
+.B \-m, \-\-multiline
+Allow the pattern to span line boundaries (\(aq.\(aq matches newline).
+.br
+Applies to: replace, find, diff, rename. Config key: multiline. Env: SR_MULTILINE.
+.TP
+.B \-\-no\-escapes
+Do not interpret \(rsn, \(rst, \(rsxNN in fixed patterns/replacements.
+.br
+Applies to: replace, find, diff, rename. Config key: no_escapes. Env: SR_NO_ESCAPES.
+.TP
+.B \-L, \-\-line\-range RANGE
+Restrict edits to a line range: 10, 10\-20, 10\- or \-20.
+.br
+Applies to: replace, find, diff, rename. Config key: line_range. Env: SR_LINE_RANGE.
+.TP
+.B \-M, \-\-max\-count N
+Replace at most N occurrences per file.
+.br
+Applies to: replace, find, diff, rename. Config key: max_count. Env: SR_MAX_COUNT.
+.TP
+.B \-\-no\-global
+Replace only the first occurrence on each line.
+.br
+Applies to: replace, find, diff, rename. Config key: no_global. Env: SR_NO_GLOBAL.
+.TP
+.B \-\-context N
+Lines of context around a match in preview/diff output (default 3). Default: 3.
+.br
+Applies to: replace, find, diff, rename. Config key: context. Env: SR_CONTEXT.
+.SS Action
+.TP
+.B \-n, \-\-dry\-run
+Report what would change; never write, never create a session.
+.br
+Applies to: replace, find, diff, rename. Config key: dry_run. Env: SR_DRY_RUN.
+.TP
+.B \-\-diff
+Show a unified diff of every change (implies a preview).
+.br
+Applies to: replace, find, diff, rename. Config key: diff. Env: SR_DIFF.
+.TP
+.B \-I, \-\-interactive
+Confirm every hunk before it is written.
+.br
+Applies to: replace, find, diff, rename. Config key: interactive. Env: SR_INTERACTIVE.
+.TP
+.B \-\-write MODE
+Where the result goes: in\-place (default), stdout, or \-\-output\-dir. One of: in\-place, stdout, dir. Default: in\-place.
+.br
+Applies to: replace. Config key: write. Env: SR_WRITE.
+.TP
+.B \-o, \-\-output\-dir DIR
+Write modified copies under DIR, mirroring the tree (needs \-\-write=dir).
+.br
+Applies to: replace. Config key: output_dir. Env: SR_OUTPUT_DIR.
+.TP
+.B \-\-suffix EXT
+When writing copies, append EXT to the file name instead of mirroring.
+.br
+Applies to: replace. Config key: suffix. Env: SR_SUFFIX.
+.TP
+.B \-\-rename
+Also apply the replacement to file and directory names.
+.br
+Applies to: replace. Config key: rename. Env: SR_RENAME.
+.TP
+.B \-\-rename\-only
+Rename matching files/directories without touching their content.
+.br
+Applies to: replace. Config key: rename_only. Env: SR_RENAME_ONLY.
+.TP
+.B \-E, \-\-encoding NAME
+Force an encoding (utf\-8, cp1251, latin\-1 …); default is auto\-detect.
+.br
+Applies to: replace, find, diff, rename. Config key: encoding. Env: SR_ENCODING.
+.TP
+.B \-\-encoding\-error POLICY
+What to do with undecodable bytes: strict (skip), replace, ignore. One of: strict, replace, ignore. Default: strict.
+.br
+Applies to: replace, find, diff, rename. Config key: encoding_error. Env: SR_ENCODING_ERROR.
+.TP
+.B \-\-line\-endings MODE
+Keep the file\(aqs line endings (default) or normalise to LF/CRLF. One of: preserve, lf, crlf. Default: preserve.
+.br
+Applies to: replace. Config key: line_endings. Env: SR_LINE_ENDINGS.
+.TP
+.B \-\-preserve\-mtime
+Restore the original modification time after writing.
+.br
+Applies to: replace. Config key: preserve_mtime. Env: SR_PRESERVE_MTIME.
+.TP
+.B \-y, \-\-yes
+Answer \(aqyes\(aq to every prompt; required for unattended runs in CI.
+.br
+Applies to: replace, rename, rollback, sessions, update. Config key: yes. Env: SR_YES.
+.SS Safety & Backups
+.TP
+.B \-\-backup, \-\-no\-backup
+Store originals in a session so the run can be rolled back (default on). Default: True.
+.br
+Applies to: replace, rename. Config key: backup. Env: SR_BACKUP.
+.TP
+.B \-\-backup\-dir DIR
+Where to keep sessions (default <target>/.sr). Use an absolute path to keep them out of the tree.
+.br
+Applies to: replace, rename. Config key: backup_dir. Env: SR_BACKUP_DIR.
+.TP
+.B \-\-keep N
+Keep at most N sessions; older ones are pruned after a run (default 20, 0 disables pruning). Default: 20.
+.br
+Applies to: replace, rename, sessions. Config key: keep. Env: SR_KEEP.
+.TP
+.B \-\-keep\-age AGE
+Also drop sessions older than AGE (e.g. 30d).
+.br
+Applies to: replace, rename, sessions. Config key: keep_age. Env: SR_KEEP_AGE.
+.TP
+.B \-\-atomic, \-\-no\-atomic
+Write via a temporary file + rename (default) or rewrite the inode in place. Default: True.
+.br
+Applies to: replace. Config key: atomic. Env: SR_ATOMIC.
+.TP
+.B \-\-lock, \-\-no\-lock
+Take an advisory lock so two sr runs cannot interleave (default on). Default: True.
+.br
+Applies to: replace, rename. Config key: lock. Env: SR_LOCK.
+.TP
+.B \-\-confirm\-threshold N
+Ask for confirmation when more than N files would change (0 disables). Default: 50.
+.br
+Applies to: replace, rename. Config key: confirm_threshold. Env: SR_CONFIRM_THRESHOLD.
+.TP
+.B \-\-allow\-root
+Permit a mutating run with euid 0 (refused by default).
+.br
+Applies to: replace, rename. Config key: allow_root. Env: SR_ALLOW_ROOT.
+.TP
+.B \-f, \-\-force
+Override safety guards (drifted files, read\-only warnings, existing targets).
+.br
+Applies to: replace, rename, rollback. Config key: force. Env: SR_FORCE.
+.SS Output & Reporting
+.TP
+.B \-v, \-\-verbose
+Show per\-file results and the reason skipped files were skipped.
+.br
+Applies to: every command. Config key: verbose. Env: SR_VERBOSE.
+.TP
+.B \-q, \-\-quiet
+Only errors; suitable for scripts.
+.br
+Applies to: every command. Config key: quiet. Env: SR_QUIET.
+.TP
+.B \-\-verbosity LEVEL
+Set the log level explicitly (overrides \-v/\-q). One of: quiet, normal, verbose, debug. Default: normal.
+.br
+Applies to: every command. Config key: verbosity. Env: SR_VERBOSITY.
+.TP
+.B \-\-color, \-\-no\-color WHEN
+Colourise output. Honours NO_COLOR and CLICOLOR_FORCE. One of: auto, always, never. Default: auto.
+.br
+Applies to: every command. Config key: color. Env: SR_COLOR.
+.TP
+.B \-\-json
+Emit a single JSON document on stdout; diagnostics go to stderr.
+.br
+Applies to: every command. Config key: json. Env: SR_JSON.
+.TP
+.B \-\-porcelain
+Emit stable \(aqpath:line:col:text\(aq records, one per match.
+.br
+Applies to: replace, find, diff, rename. Config key: porcelain. Env: SR_PORCELAIN.
+.TP
+.B \-\-progress, \-\-no\-progress
+Show a progress bar on a terminal (default on). Default: True.
+.br
+Applies to: replace, find, diff, rename. Config key: progress. Env: SR_PROGRESS.
+.TP
+.B \-\-summary, \-\-no\-summary
+Print the run summary (default on). Default: True.
+.br
+Applies to: replace, find, diff, rename. Config key: summary. Env: SR_SUMMARY.
+.SS Global (before or after the subcommand)
+.TP
+.B \-h, \-\-help
+Show help and exit.
+.br
+Applies to: every command. Config key: help. Env: SR_HELP.
+.TP
+.B \-\-help\-all
+Show help for every subcommand and option.
+.br
+Applies to: every command. Config key: help_all. Env: SR_HELP_ALL.
+.TP
+.B \-V, \-\-version
+Print version, installation and update information.
+.br
+Applies to: every command. Config key: version. Env: SR_VERSION.
+.TP
+.B \-\-debug
+Debug logging (same as \-vv).
+.br
+Applies to: every command. Config key: debug. Env: SR_DEBUG.
+.TP
+.B \-\-no\-update\-check
+Do not check for a newer release in the background.
+.br
+Applies to: every command. Config key: no_update_check. Env: SR_NO_UPDATE_CHECK.
+.TP
+.B \-\-config KEY=VALUE
+Override one configuration value (repeatable).
+.br
+Applies to: every command. Config key: config. Env: SR_CONFIG.
+.TP
+.B \-\-config\-file FILE
+Read an extra configuration file (repeatable).
+.br
+Applies to: every command. Config key: config_file. Env: SR_CONFIG_FILE.
+.TP
+.B \-v, \-\-verbose
+Show per\-file results and the reason skipped files were skipped.
+.br
+Applies to: every command. Config key: verbose. Env: SR_VERBOSE.
+.TP
+.B \-q, \-\-quiet
+Only errors; suitable for scripts.
+.br
+Applies to: every command. Config key: quiet. Env: SR_QUIET.
+.TP
+.B \-\-verbosity LEVEL
+Set the log level explicitly (overrides \-v/\-q). One of: quiet, normal, verbose, debug. Default: normal.
+.br
+Applies to: every command. Config key: verbosity. Env: SR_VERBOSITY.
+.TP
+.B \-\-color, \-\-no\-color WHEN
+Colourise output. Honours NO_COLOR and CLICOLOR_FORCE. One of: auto, always, never. Default: auto.
+.br
+Applies to: every command. Config key: color. Env: SR_COLOR.
+.TP
+.B \-\-json
+Emit a single JSON document on stdout; diagnostics go to stderr.
+.br
+Applies to: every command. Config key: json. Env: SR_JSON.
+.TP
+.B \-\-porcelain
+Emit stable \(aqpath:line:col:text\(aq records, one per match.
+.br
+Applies to: replace, find, diff, rename. Config key: porcelain. Env: SR_PORCELAIN.
+.TP
+.B \-\-progress, \-\-no\-progress
+Show a progress bar on a terminal (default on). Default: True.
+.br
+Applies to: replace, find, diff, rename. Config key: progress. Env: SR_PROGRESS.
+.TP
+.B \-\-summary, \-\-no\-summary
+Print the run summary (default on). Default: True.
+.br
+Applies to: replace, find, diff, rename. Config key: summary. Env: SR_SUMMARY.
+.SS replace only
+.TP
+.B \-\-glob GLOB
+File name pattern (repeatable); alternative to the positional GLOB.
+.SS find only
+.TP
+.B \-\-glob GLOB
+File name pattern (repeatable).
+.TP
+.B \-c, \-\-count
+Print only the number of matches per file (and a total).
+.TP
+.B \-l, \-\-files\-with\-matches
+Print only the names of files that contain a match.
+.TP
+.B \-A, \-\-after\-context N
+Print N lines after each match.
+.TP
+.B \-B, \-\-before\-context N
+Print N lines before each match.
+.TP
+.B \-\-highlight
+Force match highlighting even when writing to a file.
+.SS diff only
+.TP
+.B \-\-session SESSION
+Instead of computing a diff, show the diff stored in a session.
+.SS rename only
+.TP
+.B \-\-directories
+Also rename directories that match (default: files only).
+.SS rollback only
+.TP
+.B \-\-no\-safety\-snapshot
+Do not record the pre\-rollback state (not recommended).
+.SS sessions only
+.TP
+.B \-\-limit N
+List at most N sessions (default 20).
+.TP
+.B \-\-files
+Include the per\-file list in \(gashow\(ga.
+.SS update only
+.TP
+.B \-\-check
+Only report whether an update exists.
+.TP
+.B \-\-channel
+Release channel (default: stable).
+.TP
+.B \-\-source
+Where to fetch release information (default: github).
+.TP
+.B \-\-repo OWNER/NAME
+Override the GitHub repository.
+.TP
+.B \-\-timeout SECONDS
+Network timeout (default 20).
+.TP
+.B \-\-path FILE
+Standalone file to update (default: auto\-detect).
+.TP
+.B \-\-no\-verify
+Install without SHA\-256 verification. Verification is fail\-closed by default, so this is the only way past a missing checksum — use it only for a mirror you trust.
+.SS doctor only
+.TP
+.B \-\-offline
+Skip the network reachability probe.
+.SS completions only
+.TP
+.B \-\-install
+Write the script into the shell\(aqs completion directory.
+.SS config only
+.TP
+.B \-\-option NAME
+Option name for \(gashow\(ga, e.g. \(gasr config show \-\-option max\-size\(ga.
+.TP
+.B \-\-show\-origin
+Show where each value comes from.
+.SS selftest only
+.TP
+.B \-\-quick
+Run only the essential checks.
+.SS help only
+.TP
+.B \-\-option NAME
+Explain one option, e.g. \(gasr help \-\-option max\-count\(ga.
+.TP
+.B \-\-all
+Same as \(gasr \-\-help\-all\(ga.
+.TP
+.B \-\-no\-pager
+Never page the output.
+.SH EXIT STATUS
+.TP
+.B 0
+success (for replace/find: at least one match was found)
+.TP
+.B 1
+runtime error (I/O failure, corrupt session, internal bug)
+.TP
+.B 2
+usage error (bad arguments, bad configuration file)
+.TP
+.B 3
+no match: the pattern was not found in any target file
+.TP
+.B 4
+rollback failed for one or more files
+.TP
+.B 5
+self\-update failed (network, checksum, permissions)
+.TP
+.B 6
+selftest failed: installation is broken
+.TP
+.B 130
+interrupted by the user (SIGINT)
+.SH ENVIRONMENT
+Every option has an SR_* variable: the option name in upper case with
+'-' replaced by '_'. A variable overrides configuration files but is
+overridden by the command line.
+.TP
+.B SR_TARGET
+Same as \-\-target. Directory to operate on (default: the current directory).
+.TP
+.B SR_PATTERN
+Same as \-\-pattern. Only files whose name matches GLOB (repeatable). Default: every text file.
+.TP
+.B SR_FILE
+Same as \-\-file. Explicit file to process, bypassing pattern matching (repeatable).
+.TP
+.B SR_FILES_FROM
+Same as \-\-files\-from. Read the list of target files from FILE, one per line (\(aq\-\(aq for stdin).
+.TP
+.B SR_INCLUDE
+Same as \-\-include. Additional include glob, may contain \(aq/\(aq and \(aq**\(aq (repeatable).
+.TP
+.B SR_EXCLUDE
+Same as \-\-exclude. Exclude glob; wins over \-\-include and \-\-pattern (repeatable).
+.TP
+.B SR_EXCLUDE_DIR
+Same as \-\-exclude\-dir. Prune a directory by name (repeatable; adds to the built\-in list).
+.TP
+.B SR_NO_DEFAULT_EXCLUDES
+Same as \-\-no\-default\-excludes. Do not apply the built\-in exclude lists (node_modules, dist, *.bak …).
+.TP
+.B SR_NO_RECURSIVE
+Same as \-\-no\-recursive. Only the target directory itself, no subdirectories.
+.TP
+.B SR_MAX_DEPTH
+Same as \-\-max\-depth. Descend at most N levels below the target directory.
+.TP
+.B SR_HIDDEN
+Same as \-\-hidden. Also process dotfiles and dot\-directories.
+.TP
+.B SR_SYMLINKS
+Same as \-\-symlinks. Follow symlinked files (they are skipped by default).
+.TP
+.B SR_GITIGNORE
+Same as \-\-gitignore. Honour .gitignore files (including the global excludesfile).
+.TP
+.B SR_MAX_SIZE
+Same as \-\-max\-size. Skip files larger than SIZE (default 100MB; a bare number means megabytes).
+.TP
+.B SR_MIN_SIZE
+Same as \-\-min\-size. Skip files smaller than SIZE.
+.TP
+.B SR_NEWER_THAN
+Same as \-\-newer\-than. Only files modified within AGE (e.g. 24h, 7d, 30m).
+.TP
+.B SR_OLDER_THAN
+Same as \-\-older\-than. Only files not modified within AGE.
+.TP
+.B SR_BINARY
+Same as \-\-binary. Process files that look binary instead of skipping them.
+.TP
+.B SR_REGEX
+Same as \-\-regex. Treat PATTERN as a Python regular expression.
+.TP
+.B SR_ERE
+Same as \-\-ere. Treat PATTERN as a POSIX Extended Regular Expression (grep \-E syntax).
+.TP
+.B SR_PCRE
+Same as \-\-pcre. Treat PATTERN as a Perl\-compatible regular expression.
+.TP
+.B SR_PATTERN_KIND
+Same as \-\-pattern\-kind. Explicit pattern kind: fixed, regex, ere or pcre.
+.TP
+.B SR_IGNORE_CASE
+Same as \-\-ignore\-case. Case\-insensitive matching.
+.TP
+.B SR_WORD_BOUNDARY
+Same as \-\-word\-boundary. Match whole words only.
+.TP
+.B SR_MULTILINE
+Same as \-\-multiline. Allow the pattern to span line boundaries (\(aq.\(aq matches newline).
+.TP
+.B SR_NO_ESCAPES
+Same as \-\-no\-escapes. Do not interpret \(rsn, \(rst, \(rsxNN in fixed patterns/replacements.
+.TP
+.B SR_LINE_RANGE
+Same as \-\-line\-range. Restrict edits to a line range: 10, 10\-20, 10\- or \-20.
+.TP
+.B SR_MAX_COUNT
+Same as \-\-max\-count. Replace at most N occurrences per file.
+.TP
+.B SR_NO_GLOBAL
+Same as \-\-no\-global. Replace only the first occurrence on each line.
+.TP
+.B SR_CONTEXT
+Same as \-\-context. Lines of context around a match in preview/diff output (default 3).
+.TP
+.B SR_DRY_RUN
+Same as \-\-dry\-run. Report what would change; never write, never create a session.
+.TP
+.B SR_DIFF
+Same as \-\-diff. Show a unified diff of every change (implies a preview).
+.TP
+.B SR_INTERACTIVE
+Same as \-\-interactive. Confirm every hunk before it is written.
+.TP
+.B SR_WRITE
+Same as \-\-write. Where the result goes: in\-place (default), stdout, or \-\-output\-dir.
+.TP
+.B SR_OUTPUT_DIR
+Same as \-\-output\-dir. Write modified copies under DIR, mirroring the tree (needs \-\-write=dir).
+.TP
+.B SR_SUFFIX
+Same as \-\-suffix. When writing copies, append EXT to the file name instead of mirroring.
+.TP
+.B SR_RENAME
+Same as \-\-rename. Also apply the replacement to file and directory names.
+.TP
+.B SR_RENAME_ONLY
+Same as \-\-rename\-only. Rename matching files/directories without touching their content.
+.TP
+.B SR_ENCODING
+Same as \-\-encoding. Force an encoding (utf\-8, cp1251, latin\-1 …); default is auto\-detect.
+.TP
+.B SR_ENCODING_ERROR
+Same as \-\-encoding\-error. What to do with undecodable bytes: strict (skip), replace, ignore.
+.TP
+.B SR_LINE_ENDINGS
+Same as \-\-line\-endings. Keep the file\(aqs line endings (default) or normalise to LF/CRLF.
+.TP
+.B SR_PRESERVE_MTIME
+Same as \-\-preserve\-mtime. Restore the original modification time after writing.
+.TP
+.B SR_BACKUP
+Same as \-\-backup. Store originals in a session so the run can be rolled back (default on).
+.TP
+.B SR_BACKUP_DIR
+Same as \-\-backup\-dir. Where to keep sessions (default <target>/.sr). Use an absolute path to keep them out of the tree.
+.TP
+.B SR_KEEP
+Same as \-\-keep. Keep at most N sessions; older ones are pruned after a run (default 20, 0 disables pruning).
+.TP
+.B SR_KEEP_AGE
+Same as \-\-keep\-age. Also drop sessions older than AGE (e.g. 30d).
+.TP
+.B SR_ATOMIC
+Same as \-\-atomic. Write via a temporary file + rename (default) or rewrite the inode in place.
+.TP
+.B SR_LOCK
+Same as \-\-lock. Take an advisory lock so two sr runs cannot interleave (default on).
+.TP
+.B SR_CONFIRM_THRESHOLD
+Same as \-\-confirm\-threshold. Ask for confirmation when more than N files would change (0 disables).
+.TP
+.B SR_ALLOW_ROOT
+Same as \-\-allow\-root. Permit a mutating run with euid 0 (refused by default).
+.TP
+.B SR_FORCE
+Same as \-\-force. Override safety guards (drifted files, read\-only warnings, existing targets).
+.TP
+.B SR_VERBOSE
+Same as \-\-verbose. Show per\-file results and the reason skipped files were skipped.
+.TP
+.B SR_QUIET
+Same as \-\-quiet. Only errors; suitable for scripts.
+.TP
+.B SR_VERBOSITY
+Same as \-\-verbosity. Set the log level explicitly (overrides \-v/\-q).
+.TP
+.B SR_COLOR
+Same as \-\-color. Colourise output. Honours NO_COLOR and CLICOLOR_FORCE.
+.TP
+.B SR_JSON
+Same as \-\-json. Emit a single JSON document on stdout; diagnostics go to stderr.
+.TP
+.B SR_YES
+Same as \-\-yes. Answer \(aqyes\(aq to every prompt; required for unattended runs in CI.
+.TP
+.B SR_PORCELAIN
+Same as \-\-porcelain. Emit stable \(aqpath:line:col:text\(aq records, one per match.
+.TP
+.B SR_PROGRESS
+Same as \-\-progress. Show a progress bar on a terminal (default on).
+.TP
+.B SR_SUMMARY
+Same as \-\-summary. Print the run summary (default on).
+.TP
+.B SR_NO_UPDATE_CHECK
+Set to 1 to disable the background update check.
+.TP
+.B SR_UPDATE_REPO
+Override the GitHub repository used by \(gasr update\(ga.
+.TP
+.B SR_GITHUB_TOKEN
+Bearer token for the GitHub API (raises the rate limit).
+.TP
+.B SR_CONFIG
+Path to an extra configuration file.
+.TP
+.B SR_DEBUG
+Set to 1 to print a traceback when sr crashes.
+.TP
+.B SR_OFFLINE
+Set to 1 to skip the network probe in \(gasr doctor\(ga.
+.TP
+.B SR_COMPLETION_SHELL
+Force the shell for \(gasr completions\(ga.
+.TP
+.B NO_COLOR
+Disable colours (https://no\-color.org).
+.TP
+.B CLICOLOR_FORCE
+Force colours even when stdout is not a terminal.
+.TP
+.B COLUMNS
+Terminal width used for wrapping help output.
+.SH FILES
+.TP
+.B <target>/.sr/sessions/<id>/
+Session store: manifest.json, journal.jsonl, a content-addressed blob
+store under files/, and per-file diffs. Created by every mutating run.
+Add .sr/ to .gitignore.
+.TP
+.B /etc/sr/sr.conf
+System-wide configuration (lowest priority).
+.TP
+.B $XDG_CONFIG_HOME/sr/sr.conf
+User configuration; ~/.config/sr/sr.conf by default.
+.TP
+.B <project>/.srrc
+Project configuration, found by walking up to the repository root.
+.TP
+.B $XDG_CACHE_HOME/sr/update-check.json
+Cache for the background update check (24h TTL).
+.SH AUTHOR
+Mikhail Deynekin <mid1977@gmail.com> — https://deynekin.com
+.SH SEE ALSO
+sr help (the built\-in manual), sr help topics, sr doctor, sr selftest, grep(1), sed(1), diff(1), patch(1)
+.PP
+Full documentation: https://github.com/paulmann/sr-search-replace

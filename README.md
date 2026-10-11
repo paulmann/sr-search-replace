@@ -1,2014 +1,1141 @@
-# Search & Replace (sr) - Universal Text Replacement Utility v6.1.0
+# sr — safe, auditable search &amp; replace for source trees
 
-[![Version](https://img.shields.io/badge/version-6.1.0-blue.svg)](https://github.com/paulmann/sr-search-replace/releases/tag/v6.1.0)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Bash](https://img.shields.io/badge/bash-5.0+-brightgreen.svg)](https://www.gnu.org/software/bash/)
-[![Linux](https://img.shields.io/badge/linux-compatible-blue.svg)](#system-requirements)
-[![macOS](https://img.shields.io/badge/macos-compatible-blue.svg)](#system-requirements)
-[![Core Tools](https://img.shields.io/badge/dependencies-find/grep/sed-orange.svg)](#prerequisites)
-[![npm version](https://img.shields.io/npm/v/sr-search-replace.svg)](https://www.npmjs.com/package/sr-search-replace)
-[![npm downloads](https://img.shields.io/npm/dm/sr-search-replace.svg)](https://www.npmjs.com/package/sr-search-replace)
-[![GitHub Stars](https://img.shields.io/github/stars/paulmann/sr-search-replace?style=social)](https://github.com/paulmann/sr-search-replace)
+**`sr` rewrites text across a whole tree of files and keeps a journal of every
+change, so any run can be inspected, diffed and undone.**
 
-> **Enterprise-grade search and replace utility with session-based rollback, multi-layer binary detection, and advanced backup management**
+It is built for the jobs where `sed -i` is too blunt and an editor's
+project-wide replace is too manual: retiring an API, bumping versions in a dozen
+manifests, migrating a config key, normalising encodings, bulk-renaming files.
 
-## Table of Contents
+```console
+$ sr find "old_api" -p '*.py'            # where is it?
+src/app.py:12:5: result = old_api.call()
+src/util.py:3:1: import old_api
+2 matches in 2 files (scanned 128) in 41ms
 
-1. [Overview](#overview)
-2. [Quick Start](#quick-start)
-3. [What's New in v6.1.0](#whats-new-in-v610)
-4. [Key Features](#key-features)
-5. [System Requirements](#system-requirements)
-6. [Installation](#installation)
-7. [Usage Guide](#usage-guide)
-8. [Configuration](#configuration)
-9. [How It Works](#how-it-works)
-10. [Workflow Examples](#workflow-examples)
-11. [Enterprise Deployment](#enterprise-deployment)
-12. [Advanced Scenarios](#advanced-scenarios)
-13. [Troubleshooting](#troubleshooting)
-14. [Performance Optimization](#performance-optimization)
-15. [Security Considerations](#security-considerations)
-16. [Version History](#version-history)
-17. [Contributing](#contributing)
-18. [License](#license)
-19. [Support](#support)
-20. [FAQ](#faq)
+$ sr diff "old_api" "new_api" -p '*.py'  # what exactly would change?
+--- a/src/app.py
++++ b/src/app.py
+@@ -12 +12 @@
+-result = old_api.call()
++result = new_api.call()
 
-## Overview
+$ sr replace "old_api" "new_api" -p '*.py'
+[ok] src/app.py: 1 replacement(s)
+[ok] src/util.py: 1 replacement(s)
+Session                20260131T120530Z-9f3a1c
+Rollback               sr rollback 9f3a1c
 
-`sr` is a professional-grade command-line utility designed for safe, predictable, and auditable text replacements across multiple files. Built with enterprise deployments in mind, it provides developers, system administrators, and DevOps engineers with a robust, production-ready replacement mechanism that eliminates common pitfalls associated with text manipulation.
-
-Unlike simplistic alternatives like `sed -i` or basic find-replace scripts, `sr` implements a comprehensive safety-first approach with industrial-strength features including multi-layer binary file detection, session-based backup management with complete audit trails, one-command rollback capabilities, and configurable safety limits.
-
-### Why Choose sr?
-
-- **Safety First**: Multi-layer protection against accidental data corruption
-- **Enterprise Ready**: Session tracking, audit trails, and configurable safety limits
-- **Predictable Behavior**: Consistent argument parsing and explicit behavior control
-- **Professional Tooling**: Direct parameter passing to core utilities (find/sed/grep)
-- **Cross-Platform**: Compatible with Linux, macOS, and BSD systems
-- **npm Ready**: Install globally or pin as a `devDependency` — one command, zero setup: `npm install -g sr-search-replace`
-- **Comprehensive**: 40+ configuration options with environment variable support
-
-## Quick Start
-
-### Installation in 30 Seconds
-
-**Option A — npm (recommended for Node.js / JavaScript projects):**
-
-```bash
-# Install globally — the `sr` command becomes available system-wide
-npm install -g sr-search-replace
-
-# Or run on-demand without installing anything
-npx sr-search-replace --version
+$ sr rollback                            # changed your mind?
+[ok] session 9f3a1c rolled back (2 files)
 ```
-
-**Option B — direct download (no Node.js required):**
-
-```bash
-curl -L https://raw.githubusercontent.com/paulmann/sr-search-replace/main/sr.sh -o sr
-chmod +x sr
-sudo mv sr /usr/local/bin/
-
-# Verify installation
-sr --version
-```
-
-### Basic Usage Examples
-
-```bash
-# Simple domain migration in HTML files
-sr "*.html" "old-domain.com" "new-domain.com"
-
-# Recursive replacement with case-insensitive matching
-sr -i "*.js" "function oldName" "function newName"
-
-# Test changes before applying (dry-run)
-sr --dry-run "*.conf" "localhost:3000" "localhost:8080"
-
-# Restore from accidental changes
-sr --rollback
-```
-
-### Essential Safety Features
-
-```bash
-# Always test first
-sr --dry-run -v "*.py" "deprecated_function" "new_function"
-
-# Create backups automatically (default)
-sr "*.sql" "DROP TABLE" "DELETE FROM"
-
-# Restore if something goes wrong
-sr --rollback
-```
-
-## What's New in v6.1.0
-
-### Enhanced Configuration System
-
-Version 6.1.0 introduces a comprehensive configuration system with tool-specific parameter passing and extended search capabilities:
-
-```bash
-# Tool-specific parameter passing (NEW)
-sr --find-opts="-type f -mtime -7" "*.log" "ERROR" "WARNING"
-sr --sed-opts="-e 's/foo/bar/' -e 's/baz/qux/'" "*.txt" "find" "replace"
-sr --grep-opts="-v '^#'" "*.conf" "port" "8080"
-
-# Extended search options (NEW)
-sr -i -E -w "*.md" "\bAPI\b" "Application Programming Interface"
-```
-
-### Key Enhancements
-
-1. **Tool Configuration Variables**: Base tool commands and default flags configurable as script variables
-2. **Direct Parameter Passing**: `--find-opts`, `--sed-opts`, `--grep-opts` flags for precise control
-3. **Extended Search Capabilities**: Case-insensitive matching, word boundaries, extended regex
-4. **Improved Compatibility**: Better handling of GNU/BSD sed variations
-5. **Enhanced Documentation**: Complete reference for all tool-specific parameters
-6. **Performance Optimizations**: Optimized flag handling and execution paths
-
-### Backward Compatibility
-
-Version 6.1.0 maintains full backward compatibility with v6.0.0. All existing scripts and workflows continue to work without modification.
-
-## Key Features
-
-### Core Functionality
-
-#### 🔄 **Recursive File Processing**
-- Recursive directory traversal with configurable depth limits (1-1000 levels)
-- Single and multi-file processing modes with explicit file lists
-- Support for shell glob patterns with proper escaping and quoting
-- Dual-mode operation: pattern matching or explicit file list
-- Predictable argument parsing eliminates confusion
-
-#### 🔍 **Multi-Layer Binary Detection**
-- Three detection methods: `multi_layer` (default), `file_only`, `grep_only`
-- Layer 1: Fast grep heuristic on first N bytes (configurable)
-- Layer 2: File utility MIME type analysis (when available)
-- Layer 3: Combined decision with zero false positives
-- Explicit `--binary` flag required for binary file processing
-
-#### 💾 **Intelligent Backup System**
-- Automatic backup creation before modifications (default)
-- Session-based organization with unique session IDs (nanosecond precision)
-- Complete metadata tracking: command, arguments, timestamps, user
-- Real-time file tracking for accurate rollback operations
-- Configurable retention policies (keep last N backups)
-
-#### ⏮️ **Session Rollback System**
-- One-command restoration: `sr --rollback`
-- Specific session restoration: `sr --rollback=sr.backup.20240112_143022`
-- Interactive confirmation with 30-second timeout
-- Complete file restoration including permissions and ownership
-- Detailed rollback status reporting with success/failure counts
-
-#### 🔐 **Safety & Security Features**
-- Dry-run mode for non-destructive testing (`--dry-run`)
-- Maximum file size limits to prevent processing of huge files
-- Automatic exclusion of dangerous directories (.git, node_modules, etc.)
-- Hidden file filtering capability (`--exclude-hidden`)
-- Configurable exclude patterns and directory lists
-- Atomic operations with proper error handling and cleanup
-
-### Enhanced Capabilities (v6.1.0)
-
-#### 🛠️ **Tool-Specific Configuration**
-```bash
-# Base tool configuration (script variables)
-FIND_TOOL="find"
-SED_TOOL="sed"
-GREP_TOOL="grep"
-
-# Default flags configuration
-FIND_FLAGS=""
-SED_FLAGS=""
-GREP_FLAGS="-F"
-
-# Command-line overrides
-sr --find-opts="-type f -name '*.js'" --sed-opts="-E" "*.js" "var " "let "
-```
-
-#### 🔍 **Extended Search Options**
-- Case-insensitive matching (`-i, --ignore-case`)
-- Extended regular expressions (`-E, --extended-regex`)
-- Word boundary matching (`-w, --word-boundary`)
-- Multi-line mode (`-m, --multiline`)
-- Line number display (`-n, --line-numbers`)
-- Dot matches newline (`--dot-all`)
-- Global replace control (`--no-global`)
-
-#### 📊 **Comprehensive Logging & Reporting**
-- Four logging levels: error, warning, info, verbose, debug
-- Color-coded output for better readability
-- Session metadata tracking and reporting
-- Detailed statistics: files processed, replacements made, performance metrics
-- Progress reporting with time estimation for large file sets
-
-#### ⚙️ **Flexible Configuration System**
-- Environment variable overrides for all major options
-- Configuration via script variables (editable header section)
-- Command-line precedence: CLI > Environment > Script defaults
-- Customizable delimiters for sed operations
-- Configurable file encoding handling
-
-## System Requirements
-
-### Prerequisites
-
-The tool requires a POSIX-compliant shell environment with standard GNU/BSD utilities:
-
-```bash
-# Required core utilities (minimum versions)
-bash (5.0 or higher)        # Shell interpreter
-find (4.0+)                 # File discovery
-sed (4.0+)                  # Stream editor
-grep (3.0+)                 # Pattern matching
-
-# Highly recommended for enhanced functionality
-file (5.0+)                 # Improved binary detection
-stat (8.0+)                 # Ownership/permission preservation
-touch (8.0+)                # Timestamp management
-realpath (8.0+)             # Path resolution
-
-# Optional for additional features
-bc (1.0+)                   # Mathematical calculations
-du (8.0+)                   # Disk usage reporting
-```
-
-### Compatibility Matrix
-
-| System | Version | Status | Notes |
-|--------|---------|--------|-------|
-| Ubuntu Linux | 18.04+ | ✅ Fully Compatible | All features supported |
-| Debian | 10+ | ✅ Fully Compatible | Recommended for production |
-| CentOS/RHEL | 7+ | ✅ Fully Compatible | May require GNU coreutils |
-| macOS | 10.15+ | ✅ Fully Compatible | BSD sed requires GNU sed for some features |
-| Alpine Linux | 3.14+ | ⚠️ Mostly Compatible | BusyBox limitations may apply |
-| FreeBSD | 12.0+ | ⚠️ Mostly Compatible | Different tool flags |
-| Windows WSL2 | All | ✅ Fully Compatible | Linux subsystem required |
-
-### Dependencies Installation
-
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install bash findutils sed grep file coreutils
-
-# RHEL/CentOS
-sudo yum install bash findutils sed grep file coreutils
-
-# macOS (Homebrew)
-brew install bash findutils gnu-sed grep file coreutils
-brew link --force gnu-sed
-
-# Alpine Linux
-apk add bash findutils sed grep file coreutils
-```
-
-## Installation
-
-### Method 1: npm / npx ⭐ Recommended
-
-`sr` is published on the npm registry as [**sr-search-replace**](https://www.npmjs.com/package/sr-search-replace) and ships with a thin Node.js wrapper that delegates directly to the native Bash script — no transpilation, no runtime overhead.
-
-#### Global installation (persistent CLI)
-
-```bash
-npm install -g sr-search-replace
-
-# Verify
-sr --version
-```
-
-After a global install the `sr` command is available system-wide, just like any other CLI tool.
-
-#### Project-local installation (recommended for teams)
-
-```bash
-# Add to your project's devDependencies
-npm install --save-dev sr-search-replace
-
-# Run via npx (no global install needed)
-npx sr "*.js" "oldFunction" "newFunction"
-```
-
-Pinning the version in `devDependencies` ensures every team member and every CI runner uses the exact same release — no environment drift, no surprises.
-
-#### Zero-install execution via npx
-
-```bash
-# Run directly without any prior install — npm resolves and executes on the fly
-npx sr-search-replace --version
-npx sr-search-replace --dry-run "*.conf" "localhost" "production-host"
-```
-
-#### CI/CD integration example (GitHub Actions)
-
-```yaml
-- name: Bulk replace config values
-  run: npx sr-search-replace "*.env.example" "APP_ENV=local" "APP_ENV=production"
-```
-
-> **Requirements:** Node.js ≥ 14 · Linux or macOS · bash 5.0+  
-> Windows users must run through **WSL2** or **Git Bash**.
 
 ---
 
-### Method 2: Direct Download
+## Contents
 
-```bash
-# Download latest version
-curl -L https://raw.githubusercontent.com/paulmann/sr-search-replace/main/sr.sh -o sr
+- [Why sr](#why-sr)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Commands](#commands)
+- [Matching](#matching)
+- [Choosing files](#choosing-files)
+- [Sessions, backups and rollback](#sessions-backups-and-rollback)
+- [Automation: JSON, porcelain, exit codes](#automation-json-porcelain-exit-codes)
+- [Configuration](#configuration)
+- [Self-update](#self-update)
+- [Shell completion and man page](#shell-completion-and-man-page)
+- [Option reference](#option-reference)
+- [Safety model](#safety-model)
+- [Performance](#performance)
+- [Troubleshooting](#troubleshooting)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Migrating from sr 6.x](#migrating-from-sr-6x)
+- [License](#license)
 
-# Make executable
-chmod +x sr
+---
 
-# Install globally (optional)
-sudo cp sr /usr/local/bin/
+## Why sr
 
-# Verify installation
-sr --version
+Most search-and-replace tools are thin wrappers around `grep` + `sed`. That
+design has four consequences that show up exactly when the edit is large enough
+to matter:
+
+| The problem | What sr does instead |
+| --- | --- |
+| **Counting and replacing disagree.** `grep -c` counts *lines*, `sed s///g` replaces *occurrences*, and `-i`/`-w`/`-E` are applied to one but not the other. The number you are shown is not the number of edits made. | One matcher does the counting, the previewing and the replacing. `-i`, `-w`, `--max-count` and `--line-range` behave identically in `find`, `diff` and `replace`. |
+| **Patterns are silently regexes.** A search for `1.2.3` also matches `1x2y3`; a `$` in the replacement expands to something you did not write. | **Literal by default.** `.` is a dot, `$1` is `$1`. Regular expressions are opt-in (`--regex`, `--ere`, `--pcre`) and say so in every report. |
+| **No undo.** `sed -i` rewrites in place; the `.bak` files (if any) are a flat pile with no record of which run produced them. | Every mutating run creates a **session**: content-addressed originals, a manifest with per-file SHA-256, an append-only journal and a diff. `sr rollback` restores it, detects files edited since, and journals the rollback itself so that can be undone too. |
+| **The blast radius is discovered afterwards.** | The **scan phase completes before the first write.** The confirmation prompt, the progress bar and the summary all state real numbers, and `--dry-run` has literally no side effects — not even a `.sr/` directory. |
+
+Plus the things that make it usable in a pipeline: stable documented exit codes,
+`--json`, `--porcelain`, `--yes`, an advisory lock so two runs cannot
+interleave, encoding/BOM/line-ending preservation, and no third-party runtime
+dependencies at all.
+
+![sr pipeline: discover, scan, confirm, write, record](docs/images/pipeline.svg)
+
+---
+
+## Install
+
+`sr` is a single-file Python application. **Python 3.9 or newer is the only
+requirement** — no packages to install, no compilation, no service. Tested on
+3.9 through 3.14; see [Platforms](#install) for the OS story.
+
+### Standalone (recommended)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/paulmann/sr-search-replace/main/scripts/install.sh | bash
 ```
 
-### Method 3: Git Clone (Development)
+The installer resolves the newest release, downloads `sr.pyz` and `sr.pyz.sha256`,
+**verifies the checksum**, smoke-tests the download and installs it to
+`/usr/local/bin/sr` (override with `--prefix ~/.local/bin`). A failed
+verification installs nothing.
 
-```bash
-# Clone repository
-git clone https://github.com/paulmann/sr-search-replace.git
+<details>
+<summary>Manual install (air-gapped machines)</summary>
+
+```sh
+curl -fsSLO https://github.com/paulmann/sr-search-replace/releases/latest/download/sr.pyz
+curl -fsSLO https://github.com/paulmann/sr-search-replace/releases/latest/download/sr.pyz.sha256
+sha256sum -c sr.pyz.sha256          # must print OK
+install -m 0755 sr.pyz /usr/local/bin/sr
+```
+
+</details>
+
+### pipx / pip
+
+```sh
+pipx install sr-search-replace       # isolated, recommended
+python3 -m pip install --user sr-search-replace
+```
+
+### npm
+
+```sh
+npm install -g sr-search-replace
+```
+
+The npm package bundles the same zipapp; the launcher finds `python3` and
+reports a precise error if it is missing or too old.
+
+### From source
+
+```sh
+git clone https://github.com/paulmann/sr-search-replace
 cd sr-search-replace
-
-# Make executable
-chmod +x sr.sh
-
-# Create symlink
-sudo ln -s "$(pwd)/sr.sh" /usr/local/bin/sr
-
-# Test installation
-sr --help
+make test          # 715 tests (579 test functions), no network
+make install       # zipapp + man page into PREFIX (default /usr/local)
 ```
 
-### Method 4: Package Manager (Advanced)
+### Verify any installation
 
-```bash
-# Create installation package (deb/rpm)
-# Example for Debian-based systems
-mkdir -p sr-package/usr/local/bin
-cp sr.sh sr-package/usr/local/bin/sr
-chmod +x sr-package/usr/local/bin/sr
-
-# Build package (requires dpkg-deb)
-dpkg-deb --build sr-package sr_6.1.0_all.deb
-sudo dpkg -i sr_6.1.0_all.deb
+```sh
+sr --version       # version, interpreter, installation type
+sr doctor          # environment, filesystem capabilities, config, session store
+sr selftest        # end-to-end smoke test in a temporary directory
 ```
 
-### Installation Verification
+**Platforms.** Officially **Linux and macOS**. On Windows use **WSL2**.
 
-```bash
-# Test all components
-sr --version
-sr --help | head -20
+The Python entry point does import and run on native win32, and `sr find` /
+`--dry-run` will work, but the *write* path is not supported there and is not
+tested in CI: sr relies on POSIX rename semantics, `os.chown`, `O_CREAT|O_EXCL`
+advisory locks, inode preservation and `os.statvfs`. The npm launcher refuses on
+`win32` for exactly that reason, and `pyproject.toml` carries no Windows
+classifier. `sr doctor` reports which of those capabilities the current
+filesystem actually provides.
 
-# Verify tool dependencies
-for cmd in bash find sed grep file stat; do
-    if command -v $cmd >/dev/null 2>&1; then
-        echo "✓ $cmd: $(which $cmd)"
-    else
-        echo "✗ $cmd: NOT FOUND"
-    fi
-done
+---
 
-# Run diagnostic test
-sr --dry-run "*.txt" "test" "TEST" 2>&1 | grep -i "dry-run"
+## Quick start
+
+```sh
+# 1. look
+sr find "TODO" -p '*.py'
+sr diff "old" "new" -p '*.py'
+
+# 2. do (creates a rollback session automatically)
+sr replace "old" "new" -p '*.py'
+
+# 3. review, and undo if needed
+git diff                 # or: sr diff --session latest
+sr rollback              # restores every file of the last session
 ```
 
-### Upgrading from Previous Versions
+A bare invocation is a shortcut for `replace`, and flags work in any position:
 
-```bash
-# Via npm (if installed via npm)
-npm update -g sr-search-replace
-
-# Via direct download
-cp ~/.sr_config ~/.sr_config.backup 2>/dev/null || true
-
-curl -L https://raw.githubusercontent.com/paulmann/sr-search-replace/main/sr.sh -o /tmp/sr_new
-chmod +x /tmp/sr_new
-
-# Test new version
-/tmp/sr_new --version
-
-# Replace if tests pass
-sudo cp /tmp/sr_new /usr/local/bin/sr
-sr --version
+```sh
+sr "*.py" "old" "new"            ==  sr replace "*.py" "old" "new"
+sr "old" "new" -p '*.py' -i      ==  sr replace -i -p '*.py' "old" "new"
 ```
 
-## Usage Guide
+> Quote your globs. `sr replace *.py a b` lets the *shell* expand `*.py`;
+> `sr replace '*.py' a b` lets sr walk the tree. Both work, but only the
+> second one recurses.
 
-### Command Syntax
+### The built-in manual
 
-```bash
-# Basic syntax
-sr [OPTIONS] "FILE_PATTERN" "SEARCH_STRING" "REPLACE_STRING"
+`sr help` is a real manual — 27 topics, generated from the same schema that
+drives the parser, so it cannot drift out of date.
 
-# Important: Options MUST come before positional arguments
-# Correct:
-sr -v --dry-run "*.html" "old" "new"
-
-# Incorrect (won't work as expected):
-sr "*.html" "old" "new" -v --dry-run
+```sh
+sr help                    # overview and quick start
+sr help topics             # the topic index
+sr help matching           # literal vs --regex/--ere/--pcre, ranges, counts
+sr help rollback           # drift detection, undoing a rollback
+sr help replace            # everything one command accepts
+sr help --max-count        # one option in depth, with an example
+sr help examples           # ~40 ready-to-run command lines
+sr help --all              # the whole manual in one document
+sr help --json             # the same content, machine readable
+man sr                     # the same content as a man page
 ```
 
-### Argument Processing Modes
+---
 
-`sr` supports three distinct argument processing modes:
+## Commands
 
-#### Mode 1: Standard 3-Argument (Recommended)
-```bash
-sr "PATTERN" "SEARCH" "REPLACE"
-# Example: sr "*.js" "function old" "function new"
+| Command | Aliases | What it does |
+| --- | --- | --- |
+| `sr replace GLOB SEARCH REPLACE` | `r` | Rewrite files in place, journalled |
+| `sr find GLOB SEARCH` | `search`, `grep` | Show matches with `file:line:col`; never writes |
+| `sr diff GLOB SEARCH REPLACE` | — | Preview the change as a unified diff |
+| `sr rename GLOB SEARCH REPLACE` | `mv` | Rename files/directories by pattern |
+| `sr rollback [SESSION]` | `undo`, `restore` | Restore files from a session |
+| `sr sessions [list\|show\|delete\|prune\|size]` | `backups` | Inspect the audit trail |
+| `sr update [--check]` | `upgrade` | Check for / install a newer release |
+| `sr doctor` | `diagnose` | Verify the installation and environment |
+| `sr config [list\|show\|init\|path\|validate]` | — | Manage configuration files |
+| `sr completions [bash\|zsh\|fish]` | — | Generate shell completion |
+| `sr selftest` | `smoke` | Built-in end-to-end smoke test |
+| `sr help [TOPIC]` | — | The manual |
+
+Every command accepts `-h/--help`.
+
+### `replace`
+
+```sh
+sr replace "old_api" "new_api" -p '*.py' -p '*.pyx'
+sr replace 'version = "(\d+)"' 'version = "\1.post0"' --regex -p setup.py
+sr replace "Warning" "Notice" -i -w -p '*.md'
+sr replace "old" "new" --dry-run                     # count only, write nothing
+sr replace "old" "new" --interactive                 # confirm every hunk
+sr replace "old" "new" --write=dir -o out            # copies; originals untouched
+sr replace "old" "new" --write=stdout | less         # pipe the result
+sr replace "old" "new" --line-range 1-20 -p 'header*'
+sr replace "old" "new" --max-count 1
+sr replace "old" "new" --encoding cp1251 -p '*.txt'
+sr replace "MyClass" "YourClass" --rename -p '*.py'  # content *and* file names
 ```
 
-#### Mode 2: Standard 2-Argument (Default Pattern)
-```bash
-sr "SEARCH" "REPLACE"
-# Uses default pattern: *.*
-# Example: sr "localhost" "production-host"
+### `find`
+
+```sh
+sr find "deprecated" -p '*.py'            # file:line:col + the line, highlighted
+sr find "deprecated" --count              # per-file counts and a total
+sr find "deprecated" -l                   # file names only
+sr find "deprecated" -A 2 -B 2            # with context
+sr find 'v\d+\.\d+' --regex --porcelain | cut -d: -f1 | sort -u
 ```
 
-#### Mode 3: Explicit File List (Shell Expansion)
-```bash
-sr file1.txt file2.txt "SEARCH" "REPLACE"
-# Process specific files (not patterns)
-# Example: sr index.html about.html "Copyright 2020" "Copyright 2025"
+### `rename`
+
+```sh
+sr rename ".txt" ".md" -p '*.txt'
+sr rename --regex '^photo-(\d+)\.jpeg$' 'img_\1.jpg'
+sr rename "old" "new" --dry-run           # the plan, without executing it
 ```
 
-### Essential Options Quick Reference
+Renames never move a file to another directory, collisions are detected *before*
+anything is executed, and the whole thing is journalled so `sr rollback` undoes
+it in reverse order.
 
-| Category | Option | Description |
-|----------|--------|-------------|
-| **Core** | `-v, --verbose` | Enable verbose output |
-| | `-d, --debug` | Enable debug output (implies verbose) |
-| | `-nr, --no-recursive` | Non-recursive search |
-| **Safety** | `--dry-run` | Test without modifications |
-| | `--binary` | Allow binary file processing (REQUIRED) |
-| | `-nb, --no-backup` | Disable backup creation |
-| **Search** | `-i, --ignore-case` | Case-insensitive search |
-| | `-E, --extended-regex` | Use extended regular expressions |
-| | `-w, --word-boundary` | Match whole words only |
-| **Tools** | `--find-opts="FLAGS"` | Additional flags for find |
-| | `--sed-opts="FLAGS"` | Additional flags for sed |
-| | `--grep-opts="FLAGS"` | Additional flags for grep |
-| **Rollback** | `--rollback` | Restore latest backup |
-| | `--rollback-list` | List available backups |
+### `doctor`, `selftest`, `config`, `completions`
 
-### Comprehensive Examples
-
-#### Basic Text Replacement
-
-```bash
-# Simple string replacement
-sr "*.txt" "hello" "world"
-
-# Recursive replacement with verbose output
-sr -v "**/*.js" "var " "const "
-
-# Case-insensitive domain migration
-sr -i "*.html" "http://example.com" "https://example.com"
+```sh
+sr doctor --json | jq '.checks[] | select(.status != "ok")'
+sr selftest                                # 19 end-to-end checks in ~50 ms
+sr config list --show-origin               # every option and where it came from
+sr config init                             # documented template in ~/.config/sr/
+sr completions --install                   # bash/zsh/fish, auto-detected
 ```
 
-#### Pattern-Based Operations
+---
 
-```bash
-# Replace in specific file types only
-sr "src/**/*.ts" "interface Old" "interface New"
+## Matching
 
-# Multiple file patterns (using shell expansion)
-sr *.js *.ts *.jsx "React.Component" "React.PureComponent"
+Four pattern kinds. **Literal is the default**, which is the single most
+important difference from `sed`:
 
-# Exclude directories from search
-sr -xd node_modules,dist "*.js" "TODO:" "DONE:"
+```sh
+sr replace "1.2.3" "1.2.4"            # a dot is a dot
+sr replace '1\.2\.3' '1.2.4' --regex  # now it is a regex
 ```
 
-#### Advanced Search Features
+| Flag | Syntax | Replacement semantics |
+| --- | --- | --- |
+| *(default)* | literal text | verbatim — `$1`, `\1` and `&` stay literal |
+| `--regex` | Python `re` | template: `\1`, `\g<name>`, `\n`, `\\` |
+| `--ere` | POSIX ERE (`grep -E`) | template, plus `[[:digit:]]`, `\<`, `\>` |
+| `--pcre` | Perl (`grep -P`) | template, plus `\A`, `\z`, `(?<name>…)` |
 
-```bash
-# Extended regex with word boundaries
-sr -E -w "*.md" "\bAPI\b" "Application Programming Interface"
+Modifiers, applied uniformly to every kind:
 
-# Case-insensitive multi-line replacement
-sr -i -m "*.py" "def calculate.*\n.*return" "def compute"
+| Flag | Effect |
+| --- | --- |
+| `-i`, `--ignore-case` | case-insensitive |
+| `-w`, `--word-boundary` | whole words only |
+| `-m`, `--multiline` | the pattern may span line boundaries |
+| `-L`, `--line-range R` | restrict edits to lines `10`, `10-20`, `10-`, `-20` |
+| `-M`, `--max-count N` | at most N replacements **per file** |
+| `--no-global` | only the first occurrence **per line** |
+| `--no-escapes` | do not interpret `\n`, `\t`, `\xNN` in fixed patterns |
 
-# Show line numbers of matches (dry-run)
-sr --dry-run -n "*.java" "System.out.println" "logger.debug"
+Escape sequences recognised in fixed patterns: `\n \t \r \f \0 \e \\ \' \" \xNN`.
+**`\b` is deliberately not one of them** — `C:\bin` must stay `C:\bin`, not
+become a backspace. Unknown escapes keep their backslash.
+
+Counting rule: **occurrences, not lines.** A line with three hits counts three,
+in `find`, in the confirmation prompt, in `--max-count` and in the summary —
+because all of them ask the same matcher.
+
+```console
+$ sr help matching        # the full chapter, with a cheat sheet
 ```
 
-#### Safety-First Operations
+---
 
-```bash
-# Always test first with dry-run
-sr --dry-run -v "*.yml" "password:.*" "password: [REDACTED]"
+## Choosing files
 
-# Force backups for critical changes
-sr -fb "*.sql" "DROP TABLE" "-- DROP TABLE"
-
-# Set safe limits for production
-sr -md 5 -xs 10 "*.conf" "debug: true" "debug: false"
+```sh
+sr replace a b -p '*.py'                     # by name (repeatable)
+sr replace a b --include 'src/**/*.py'       # by path, ** supported
+sr replace a b --exclude '*.min.js' --exclude 'vendor/*'
+sr replace a b --file src/app.py --file src/main.py
+git ls-files '*.py' | sr replace a b --files-from -
+sr replace a b -C ~/projects/api             # another directory
+sr replace a b --no-recursive --max-depth 2
+sr replace a b --hidden -p '.env*'
+sr replace a b --gitignore                   # honour .gitignore
+sr replace a b --max-size 1MB --newer-than 7d
 ```
 
-#### Tool-Specific Parameter Passing (v6.1.0)
+**Safe by default:** `.git`, `.hg`, `.svn`, `node_modules`, `vendor`, `dist`,
+`build`, `target`, `__pycache__`, `.venv`, `.cache`, `.gradle`, `.terraform`,
+`.idea`, `.vscode` are pruned *before* descending (so scanning them costs
+nothing); `.DS_Store`, `*.orig`, `*.rej`, `*.bak`, `*.swp`, `*~` are skipped;
+hidden files are skipped; symlinks are skipped; binary files are skipped; and
+sr's own `.sr/` store is always pruned so a rollback can never feed on itself.
 
-```bash
-# Pass custom flags to find
-sr --find-opts="-type f -mtime -1" "*.log" "ERROR" "WARNING"
+Add `-v` to see *why* a candidate was skipped — every rejection has a reason:
 
-# Use sed with multiple expressions
-sr --sed-opts="-e 's/foo/bar/g' -e 's/baz/qux/g'" "*.txt" "pattern" "replacement"
-
-# Configure grep behavior
-sr --grep-opts="-v '^#'" "*.conf" "port = 3000" "port = 8080"
+```console
+$ sr find "x" -v
+[verbose] skipped assets/logo.png: binary content (use --binary to force)
+[verbose] skipped vendor/lib.js: excluded directory (vendor)
+[verbose] skipped dist/app.js: ignored by .gitignore
 ```
 
-#### Session Management and Rollback
+---
 
-```bash
-# List all available backups
-sr --rollback-list
+## Sessions, backups and rollback
 
-# Restore latest backup
-sr --rollback
+Every mutating run writes a session:
 
-# Restore specific session
-sr --rollback=sr.backup.20240115_143022_123456789
-
-# Interactive restoration with timeout
-echo "y" | timeout 10 sr --rollback
+```
+<target>/.sr/sessions/20260131T120530Z-9f3a1c/
+├── manifest.json    who, what, when; per-file SHA-256, size, mode, uid/gid
+├── journal.jsonl    append-only op log, fsync-ed per file (crash-safe)
+├── files/9f/9f3a….dat   the original bytes, content addressed
+└── diffs/src/app.py.diff
 ```
 
-### Exit Codes
+* **Content addressed** — identical originals are stored once, so 10 000 files
+  sharing a header cost one blob. Every blob is re-hashed on read: a truncated
+  or tampered backup is reported, never silently restored.
+* **Journal first, manifest last** — a run killed halfway still has a usable
+  journal, and sr rebuilds enough of the session from it to roll back.
+* **Add `.sr/` to `.gitignore`.** Use `--backup-dir` to keep sessions outside
+  the tree (read-only checkout, or you simply do not want the directory).
 
-| Code | Meaning | Typical Scenario |
-|------|---------|------------------|
-| 0 | Success | Replacements completed successfully |
-| 1 | Invalid arguments | Missing or incorrect parameters |
-| 2 | No files found | Pattern didn't match any files |
-| 3 | No replacements | Search string not found |
-| 4 | Runtime error | Permission issues, disk full, etc. |
-| 5 | Backup failed | Couldn't create backup files |
-| 6 | Binary file detected | Binary file encountered without --binary flag |
-| 7 | Rollback failed | Restoration encountered errors |
+![Session layout and what rollback guarantees](docs/images/session-store.svg)
+* **`--no-backup`** skips the store entirely — the right choice inside a clean
+  git working tree, where `git checkout -- .` is your rollback.
+
+### Rolling back
+
+```sh
+sr sessions                     # what can I undo?
+sr rollback                     # newest session
+sr rollback 9f3a1c              # by unique id suffix
+sr rollback 2                   # ordinal: 2 = the second newest
+sr rollback latest --dry-run    # show what would be restored
+sr rollback latest --file src/app.py
+sr diff --session latest        # the diffs that run recorded
+```
+
+**Drift detection.** The manifest stores the SHA-256 of each file *after* the
+run. Before restoring, sr hashes the file as it is now:
+
+| Current state | Behaviour |
+| --- | --- |
+| unchanged since the session | restored silently |
+| **edited afterwards** | reported as drifted and **skipped** unless `--force` |
+| deleted | restored (the directory is recreated) |
+
+That is what makes `sr rollback` safe to run hours later: it will not throw away
+edits you made in the meantime.
+
+**The rollback is itself reversible.** Unless you pass `--no-safety-snapshot`,
+the pre-rollback state is recorded in a new session of kind `rollback`:
+
+```console
+$ sr rollback --yes
+[ok] session 9f3a1c rolled back (2 files)
+Undo this rollback     sr rollback 20260131T120918Z-4b7e21
+```
+
+**Retention.** `--keep N` (default 20) and `--keep-age 30d` are applied after
+every mutating run, so the store cannot grow without bound:
+
+```sh
+sr sessions size
+sr sessions prune --keep 10 --keep-age 30d
+```
+
+---
+
+## Automation: JSON, porcelain, exit codes
+
+### `--json`
+
+One document on stdout; **every diagnostic goes to stderr**, so
+`sr … --json | jq` is always safe.
+
+```sh
+sr replace "$OLD" "$NEW" --yes --json --no-update-check > report.json
+jq -e '.totals.failed == 0' report.json
+jq -r '.files[] | select(.status=="changed") | "\(.rel_path): \(.replacements)"' report.json
+```
+
+```jsonc
+{
+  "version": "7.0.0",
+  "dry_run": false,
+  "root": "/home/me/project",
+  "search": "old", "replacement": "new", "pattern_kind": "fixed",
+  "duration_seconds": 0.412,
+  "totals": {
+    "scanned": 128, "changed": 7, "unchanged": 121, "skipped": 2,
+    "failed": 0, "matches": 19, "replacements": 19, "renamed": 0,
+    "bytes_read": 421887, "bytes_written": 20144
+  },
+  "session": { "id": "20260131T120530Z-9f3a1c", "…": "…" },
+  "files": [
+    { "path": "…", "rel_path": "src/app.py", "status": "changed",
+      "matches": 3, "replacements": 3, "encoding": "utf-8",
+      "size_before": 4012, "size_after": 4015,
+      "diff": { "added": 3, "removed": 3, "changed": 6 } }
+  ],
+  "errors": [], "warnings": [], "exit_code": 0
+}
+```
+
+Add `--diff` to include each file's patch text as `"patch"`.
+
+### `--porcelain`
+
+Stable `path:line:col:kind:text` records, designed to be cut and piped:
+
+```sh
+sr find "TODO" --porcelain | cut -d: -f1 | sort -u
+```
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | success (for `find`/`replace`: at least one match) |
+| `1` | runtime error (I/O failure, corrupt session, internal bug) |
+| `2` | usage error (bad arguments, unreadable config, missing directory) |
+| `3` | **no match** — nothing to do (grep/diff convention) |
+| `4` | rollback failed for one or more files |
+| `5` | self-update failed (network, checksum, permissions) |
+| `6` | `sr selftest` failed: the installation is broken |
+| `130` | interrupted with Ctrl-C |
+
+Full table, per-command behaviour and the reasoning behind the split:
+[`docs/EXIT_CODES.md`](docs/EXIT_CODES.md) (generated from `sr/exit_codes.py`)
+or `sr help exit-codes`.
+
+```sh
+if sr replace "$OLD" "$NEW" --yes -q; then
+  echo changed
+elif [ $? -eq 3 ]; then
+  echo "nothing to do"
+else
+  echo failed >&2; exit 1
+fi
+```
+
+### CI checklist
+
+* `--yes` — never prompt (sr refuses to prompt when stdin is not a terminal and
+  exits non-zero instead of hanging the job)
+* `--no-update-check` — keep the network out of the job
+* `--json` or `--porcelain` — parse, do not scrape
+* `--no-backup` when the workspace is a fresh checkout, or `--backup-dir`
+  pointed at a cache directory when you want the rollback
+* `SR_NO_COLOR=1` / `--color never` — no ANSI codes in the log
+* `sr selftest` as a post-install step in the image
+
+---
 
 ## Configuration
 
-### Environment Variables
-
-Configure default behavior via environment variables (override script defaults):
-
-```bash
-# Core behavior
-export SR_DEBUG=true
-export SR_DRY_RUN=false
-export SR_NO_BACKUP=false
-export SR_FORCE_BACKUP=false
-export SR_MAX_DEPTH=50
-export SR_VERBOSE=true
-
-# Safety limits
-export SR_MAX_FILE_SIZE_MB=50
-export SR_BINARY_CHECK_SIZE=2048
-export SR_MAX_BACKUPS=20
-
-# Search behavior (v6.1.0)
-export SR_IGNORE_CASE=false
-export SR_EXTENDED_REGEX=true
-export SR_WORD_BOUNDARY=false
-export SR_GLOBAL_REPLACE=true
-
-# Tool configuration (v6.1.0)
-export SR_FIND_FLAGS="-type f"
-export SR_SED_FLAGS=""
-export SR_GREP_FLAGS="-F"
-
-# Execution
-sr "*.conf" "old" "new"
-```
-
-### Script Configuration Header
-
-Advanced users can modify default behavior directly in the script header:
-
-```bash
-# ============================================================================
-# ENHANCED CONFIGURABLE DEFAULTS - EDIT THESE TO CHANGE SCRIPT BEHAVIOR
-# ============================================================================
-
-# Default behavior settings
-readonly SESSION_VERSION="6.1.0"
-readonly DEFAULT_DEBUG_MODE=false
-readonly DEFAULT_RECURSIVE_MODE=true
-readonly DEFAULT_DRY_RUN=false
-
-# Tool configuration (v6.1.0)
-readonly FIND_TOOL="find"
-readonly SED_TOOL="sed"
-readonly GREP_TOOL="grep"
-readonly DEFAULT_FIND_FLAGS=""
-readonly DEFAULT_SED_FLAGS=""
-readonly DEFAULT_GREP_FLAGS="-F"
-
-# Enhanced search parameters (v6.1.0)
-readonly DEFAULT_IGNORE_CASE=false
-readonly DEFAULT_EXTENDED_REGEX=false
-readonly DEFAULT_WORD_BOUNDARY=false
-```
-
-### Configuration Precedence
-
-1. **Command-line arguments** (highest priority)
-2. **Environment variables** (SR_*)
-3. **Script defaults** (lowest priority)
-
-Example:
-```bash
-# Script default: DEFAULT_MAX_DEPTH=100
-# Environment: SR_MAX_DEPTH=50
-# Command line: -md 10
-# Result: MAX_DEPTH=10 (command line wins)
-```
-
-### Persistent Configuration
-
-For team or project-specific settings, create a configuration wrapper:
-
-```bash
-#!/bin/bash
-# File: /usr/local/bin/sr-project
-export SR_MAX_DEPTH=3
-export SR_NO_BACKUP=false
-export SR_VERBOSE=true
-export SR_EXCLUDE_DIRS="node_modules,dist,.git"
-/usr/local/bin/sr "$@"
-```
-
-## How It Works
-
-### Architecture Overview
-
-```mermaid
-graph TB
-    A[Start sr.sh] --> B[Parse Arguments]
-    B --> C{Argument Analysis}
-    C -->|3 args| D[Pattern Mode]
-    C -->|2 args| E[Default Pattern]
-    C -->|>3 args| F[Explicit File List]
-    
-    D --> G[File Discovery]
-    E --> G
-    F --> H[File Validation]
-    
-    G --> I[Apply Filters]
-    H --> I
-    
-    I --> J[Process Each File]
-    
-    J --> K{Binary Check?}
-    K -->|Yes| L[Multi-layer Detection]
-    K -->|No| M[Skip Check]
-    
-    L --> N{Binary?}
-    N -->|Yes| O{--binary flag?}
-    N -->|No| P[Continue]
-    
-    O -->|Yes| P
-    O -->|No| Q[Skip File]
-    
-    P --> R[Create Backup]
-    R --> S[Perform Replacement]
-    S --> T[Track Changes]
-    
-    T --> U{More files?}
-    U -->|Yes| J
-    U -->|No| V[Finalize Session]
-    
-    V --> W[Update Metadata]
-    W --> X[Cleanup Old Backups]
-    X --> Y[Show Summary]
-    Y --> Z[End]
-    
-    Q --> U
-```
-
-### Session Management System
-
-Each execution creates a unique session with comprehensive tracking:
+Precedence, lowest to highest:
 
 ```
-sr.backup.20240115_143022_123456789/
-├── .sr_session_metadata      # Complete session information
-│   ├── SESSION_ID
-│   ├── SESSION_COMMAND
-│   ├── SESSION_START_TIME
-│   ├── SESSION_END_TIME
-│   ├── SESSION_MODIFIED_COUNT
-│   └── SESSION_TOTAL_REPLACEMENTS
-├── .sr_modified_files        # List of modified files
-├── .sr_file_info            # Additional file metadata
-└── files/                   # Original file backups
-    ├── index.html
-    ├── config.json
-    └── src/main.js
+built-in defaults
+  → /etc/sr/sr.conf
+  → $XDG_CONFIG_HOME/sr/sr.conf          (~/.config/sr/sr.conf)
+  → <project root>/.srrc , <target>/.srrc , <target>/.sr/sr.conf
+  → $SR_CONFIG  /  --config-file FILE
+  → SR_* environment variables
+  → --config KEY=VALUE
+  → command line flags
 ```
 
-### File Processing Pipeline
+A small, forgiving INI dialect:
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant SR as sr.sh
-    participant Find as find/grep
-    participant FileSys as File System
-    participant Backup as Backup System
-    participant Sed as sed
-    
-    User->>SR: Execute with arguments
-    SR->>Find: Discover files
-    Find->>FileSys: Match patterns
-    FileSys->>Find: Return file list
-    Find->>SR: Filtered files
-    
-    loop For Each File
-        SR->>SR: Binary detection
-        SR->>Backup: Create backup
-        Backup->>FileSys: Copy original
-        SR->>Sed: Perform replacement
-        Sed->>FileSys: Modify file
-        SR->>SR: Track changes
-    end
-    
-    SR->>SR: Finalize session
-    SR->>User: Show summary
+```ini
+# ~/.config/sr/sr.conf
+ignore-case = true              # applies to every command
+exclude = *.min.js, dist        # comma or whitespace separated
+
+[replace]                       # `sr replace` only
+confirm-threshold = 500
+keep = 50
+
+[find]
+context = 1
 ```
 
-### Binary File Detection Flow
+Rules: keys are option names (`-` and `_` interchangeable) · a bare key means
+`true` · booleans accept `true/false/yes/no/on/off/1/0` · sizes accept `512`,
+`4KB`, `10MB`, `1.5GiB` · durations accept `30s`, `5m`, `7d` · repeating a key
+builds a list · **an unknown key or an invalid value is a hard error with
+`file:line`**, because a silently ignored typo is exactly what a bulk-edit tool
+must not have.
 
-```mermaid
-flowchart TD
-    A[Start Binary Check] --> B{Layer 1: Size Check}
-    B -->|Empty| C[Not Binary]
-    B -->|Has content| D{Layer 2: Grep Heuristic}
-    
-    D -->|Non-text chars| E{Layer 3: File Utility}
-    D -->|Text only| C
-    
-    E -->|MIME: text/*| C
-    E -->|MIME: other| F[Binary Detected]
-    E -->|No file command| G{Fallback Decision}
-    
-    G -->|Grep says binary| F
-    G -->|Grep says text| C
-    
-    F --> H{--binary flag?}
-    H -->|Yes| I[Allow Processing]
-    H -->|No| J[Skip File]
-    
-    C --> K[Allow Processing]
-    I --> K
+```sh
+sr config list --show-origin     # every option, its value, where it came from
+sr config show confirm-threshold
+sr config init                   # documented template
+sr config path                   # the files sr reads, in priority order
+sr config validate               # parse them all, report errors
 ```
 
-### Multi-Layer Detection Details
+Every option also has an `SR_*` environment variable — the option name in upper
+case with `-` → `_`:
 
-1. **Layer 1 (Size Check)**: Empty files are considered text
-2. **Layer 2 (Grep Heuristic)**: Check first N bytes (default: 1024) for non-text characters
-3. **Layer 3 (File Utility)**: Use `file --mime-type` for authoritative classification
-4. **Decision Logic**: Conservative approach - only classify as binary with high confidence
-
-## Workflow Examples
-
-### Development Workflow
-
-```bash
-# 1. Initial discovery and testing
-sr --dry-run -v "src/**/*.ts" "anyFunction" "specificFunction"
-
-# 2. Review what will be changed
-sr --dry-run -n "src/**/*.ts" "anyFunction" "specificFunction" | head -20
-
-# 3. Execute with backups
-sr -v "src/**/*.ts" "anyFunction" "specificFunction"
-
-# 4. Verify changes
-git diff
-
-# 5. Rollback if needed
-sr --rollback
-
-# 6. Clean up old backups
-sr --max-backups=5 "dummy" "dummy" "dummy"
+```sh
+SR_IGNORE_CASE=true sr replace "warning" "notice" -p '*.md'
+export SR_EXCLUDE='*.min.js vendor/*'
 ```
 
-### Code Refactoring Workflow
-
-```bash
-# Refactor with confidence using session tracking
-SESSION_ID=$(date +%Y%m%d_%H%M%S)_refactor
-
-# Phase 1: Rename variables
-sr --verbose "src/**/*.js" "var oldName" "const newName"
-
-# Phase 2: Update function calls
-sr --verbose "src/**/*.js" "oldFunction(" "newFunction("
-
-# Phase 3: Update imports
-sr --verbose "src/**/*.js" "from 'old-module'" "from 'new-module'"
-
-# Verify all changes
-sr --rollback-list
-
-# Create checkpoint
-echo "Refactoring checkpoint: $SESSION_ID"
-```
-
-### Configuration Management Workflow
-
-```bash
-# Update configuration across environments
-for env in dev staging prod; do
-    echo "Processing $env environment..."
-    cd "/etc/app/$env"
-    
-    # Backup current state
-    sr --verbose "*.conf" "dummy" "dummy"  # Creates backup session
-    
-    # Update configuration
-    sr --verbose "*.conf" "db.host=localhost" "db.host=cluster-$env"
-    sr --verbose "*.conf" "cache.enabled=false" "cache.enabled=true"
-    
-    # Verify changes
-    sr --rollback-list | tail -5
-    
-    echo "Completed $env"
-done
-```
-
-### Emergency Rollback Procedure
-
-```bash
-# 1. Identify the problem
-sr --rollback-list
-
-# 2. Choose restoration point
-BACKUP_DIR=$(sr --rollback-list 2>&1 | grep "sr.backup" | head -1 | awk '{print $1}')
-
-# 3. Preview restoration
-sr --dry-run --rollback="$BACKUP_DIR"
-
-# 4. Execute restoration
-sr --rollback="$BACKUP_DIR"
-
-# 5. Verify restoration
-echo "Restoration complete. Checking critical files..."
-for file in /etc/app/config.json /var/www/index.html; do
-    if [[ -f "$file" ]]; then
-        echo "✓ $file exists"
-    fi
-done
-```
-
-## Enterprise Deployment
-
-### Security Hardening
-
-```bash
-#!/bin/bash
-# File: sr-secure-wrapper.sh
-# Enterprise security wrapper for sr.sh
-
-# Set secure defaults
-export SR_MAX_DEPTH=10
-export SR_MAX_FILE_SIZE_MB=10
-export SR_NO_BACKUP=false
-export SR_FORCE_BACKUP=true
-export SR_MAX_BACKUPS=30
-export SR_BINARY_CHECK_SIZE=4096
-
-# Exclude sensitive directories
-export SR_EXCLUDE_DIRS=".git,node_modules,dist,build,.cache,.env,secrets"
-
-# Limit binary processing
-export SR_ALLOW_BINARY=false
-export SR_BINARY_DETECTION_METHOD="multi_layer"
-
-# Enable comprehensive logging
-export SR_VERBOSE=true
-
-# Execute with additional security checks
-if [[ "$1" == "--rollback" ]]; then
-    # Additional authentication for rollbacks
-    echo "Rollback requested. Please authenticate:"
-    read -s -p "Security Token: " token
-    if [[ "$token" != "$SECURITY_TOKEN" ]]; then
-        echo "Authentication failed"
-        exit 1
-    fi
-fi
-
-# Execute original sr.sh
-/usr/local/bin/sr "$@"
-```
-
-### Centralized Logging Integration
-
-```bash
-#!/bin/bash
-# File: sr-logger.sh
-# Wrapper for centralized logging
-
-LOG_FILE="/var/log/sr-operations.log"
-AUDIT_FILE="/var/log/sr-audit.log"
-
-log_operation() {
-    local user=$(whoami)
-    local host=$(hostname)
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local session="${SESSION_ID:-unknown}"
-    
-    echo "$timestamp | $user@$host | $session | $*" >> "$LOG_FILE"
-}
-
-log_audit() {
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local action="$1"
-    local details="$2"
-    
-    echo "$timestamp | AUDIT | $action | $details" >> "$AUDIT_FILE"
-}
-
-# Log startup
-log_operation "START: $0 $*"
-
-# Execute and capture output
-exec 5>&1
-output=$(/usr/local/bin/sr "$@" 2>&1 | tee /dev/fd/5)
-exit_code=$?
-
-# Log completion
-log_operation "END: exit_code=$exit_code"
-log_audit "EXECUTION" "Command: $* | Exit: $exit_code"
-
-exit $exit_code
-```
-
-### High Availability Configuration
-
-```bash
-# Distributed backup strategy
-#!/bin/bash
-# File: sr-ha.sh
-# High availability wrapper with remote backup
-
-PRIMARY_BACKUP_DIR="./backups"
-SECONDARY_BACKUP_DIR="/mnt/backup-fs/sr-backups"
-REMOTE_BACKUP_HOST="backup-server"
-REMOTE_BACKUP_PATH="/backups/sr"
-
-# Create local backup
-/usr/local/bin/sr "$@"
-EXIT_CODE=$?
-
-if [[ $EXIT_CODE -eq 0 ]]; then
-    # Sync to secondary location
-    LATEST_BACKUP=$(ls -td sr.backup.* 2>/dev/null | head -1)
-    
-    if [[ -n "$LATEST_BACKUP" ]]; then
-        # Copy to secondary FS
-        cp -r "$LATEST_BACKUP" "$SECONDARY_BACKUP_DIR/"
-        
-        # Sync to remote (if configured)
-        if [[ -n "$REMOTE_BACKUP_HOST" ]]; then
-            rsync -avz "$LATEST_BACKUP/" \
-                "$REMOTE_BACKUP_HOST:$REMOTE_BACKUP_PATH/$LATEST_BACKUP/"
-        fi
-        
-        echo "Backup replicated to secondary storage"
-    fi
-fi
-
-exit $EXIT_CODE
-```
-
-### Kubernetes/Container Deployment
-
-```yaml
-# File: sr-configmap.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: sr-config
-data:
-  sr-config.sh: |
-    #!/bin/bash
-    export SR_MAX_DEPTH=20
-    export SR_MAX_FILE_SIZE_MB=50
-    export SR_NO_BACKUP=false
-    export SR_VERBOSE=true
-    export SR_EXCLUDE_DIRS=".git,node_modules"
-    export SR_BINARY_DETECTION_METHOD="multi_layer"
-    
-    # Container-specific settings
-    export SR_SEARCH_DIR="/app"
-    export SR_TEMP_DIR="/tmp"
-    
-    exec /usr/local/bin/sr "$@"
-```
-
-```dockerfile
-# File: Dockerfile.sr
-FROM alpine:3.14
-
-# Install dependencies
-RUN apk add --no-cache \
-    bash \
-    findutils \
-    sed \
-    grep \
-    file \
-    coreutils
-
-# Install sr
-COPY sr.sh /usr/local/bin/sr
-RUN chmod +x /usr/local/bin/sr
-
-# Create wrapper with defaults
-COPY sr-config.sh /usr/local/bin/sr-wrapper
-RUN chmod +x /usr/local/bin/sr-wrapper
-
-ENTRYPOINT ["/usr/local/bin/sr-wrapper"]
-```
-
-## Advanced Scenarios
-
-### Multi-Environment Synchronization
-
-```bash
-#!/bin/bash
-# File: sync-environments.sh
-# Synchronize configuration across multiple environments
-
-ENVIRONMENTS="dev staging prod"
-SEARCH_STRING="api.endpoint=http://localhost:8080"
-REPLACE_TEMPLATE="api.endpoint=https://{env}-api.example.com"
-
-for env in $ENVIRONMENTS; do
-    echo "=== Processing $env environment ==="
-    
-    # Calculate environment-specific replacement
-    REPLACE_STRING="${REPLACE_TEMPLATE/\{env\}/$env}"
-    
-    # Change to environment directory
-    cd "/opt/app/$env" || continue
-    
-    # Create backup session
-    BACKUP_SESSION="sync_$(date +%Y%m%d_%H%M%S)_$env"
-    export SR_BACKUP_PREFIX="$BACKUP_SESSION"
-    
-    # Perform replacement
-    sr --verbose "*.json" "$SEARCH_STRING" "$REPLACE_STRING"
-    
-    # Verify changes
-    echo "Changes in $env:"
-    grep -n "api.endpoint" *.json
-    
-    # Log operation
-    echo "$(date): $env updated" >> /var/log/config-sync.log
-    
-    echo ""
-done
-```
-
-### Database Migration Script Generation
-
-```bash
-#!/bin/bash
-# File: generate-migrations.sh
-# Generate SQL migration scripts from configuration changes
-
-# Extract database URLs from configuration
-sr --dry-run --verbose "*.yml" "database://" "DATABASE_PLACEHOLDER" | \
-    grep -o "database://[^ ]*" | \
-    sort -u > database-urls.txt
-
-# Generate migration for each unique URL
-while read -r db_url; do
-    # Parse URL components
-    PROTOCOL="${db_url%://*}"
-    REST="${db_url#*://}"
-    USER_PASS="${REST%@*}"
-    HOST_PORT="${REST#*@}"
-    HOST="${HOST_PORT%:*}"
-    PORT="${HOST_PORT#*:}"
-    
-    # Generate migration script
-    cat > "migrate_${HOST}.sql" << EOF
--- Migration for ${HOST}
--- Generated: $(date)
--- Original URL: ${db_url}
-
--- Update connection strings
-UPDATE config SET value = '${db_url}' WHERE key = 'database.url';
-
--- Additional migration steps
--- ... (add specific migration logic)
-EOF
-    
-    echo "Generated migration for ${HOST}"
-done < database-urls.txt
-```
-
-### Content Management System Updates
-
-```bash
-#!/bin/bash
-# File: update-cms.sh
-# Batch update CMS content across multiple sites
-
-SITES_DIR="/var/www/sites"
-PATTERNS=(
-    "*.php"
-    "*.html"
-    "*.css"
-    "*.js"
-)
-
-# Common updates for CMS migration
-UPDATES=(
-    "old-cdn.example.com|new-cdn.example.com"
-    "http://|https://"
-    "Copyright 2020|Copyright 2025"
-    "jquery-1.11.1|jquery-3.6.0"
-)
-
-for site in "$SITES_DIR"/*; do
-    if [[ -d "$site" ]]; then
-        SITE_NAME=$(basename "$site")
-        echo "Updating site: $SITE_NAME"
-        
-        cd "$site" || continue
-        
-        for pattern in "${PATTERNS[@]}"; do
-            for update in "${UPDATES[@]}"; do
-                SEARCH="${update%|*}"
-                REPLACE="${update#*|}"
-                
-                # Dry-run first
-                sr --dry-run --verbose "$pattern" "$SEARCH" "$REPLACE" | \
-                    tail -5
-                
-                # Ask for confirmation
-                read -p "Apply changes for '$SEARCH' -> '$REPLACE'? (y/n): " confirm
-                if [[ "$confirm" == "y" ]]; then
-                    sr --verbose "$pattern" "$SEARCH" "$REPLACE"
-                fi
-            done
-        done
-        
-        echo "Completed $SITE_NAME"
-        echo "---"
-    fi
-done
-```
-
-### Automated Code Review Cleanup
-
-```bash
-#!/bin/bash
-# File: cleanup-code-review.sh
-# Automatically fix common code review comments
-
-# Fix TODO comments
-sr --verbose "src/**/*.js" "// TODO:" "// TODO(username):"
-sr --verbose "src/**/*.js" "// FIXME:" "// FIXME(username):"
-
-# Standardize error messages
-sr --verbose "src/**/*.js" "console.error('Error:'" "logger.error('Error:'"
-
-# Remove debug statements
-sr --dry-run --verbose "src/**/*.js" "console.debug" "// console.debug"
-sr --dry-run --verbose "src/**/*.js" "console.log" "// console.log"
-
-# Standardize imports
-sr --verbose "src/**/*.js" "import React from 'react';" "import React from 'react';"
-sr --verbose "src/**/*.js" "import { Component } from 'react';" "import { Component } from 'react';"
-
-# Fix string formatting
-sr --verbose "src/**/*.js" "' + variable + '" "\`\${variable}\`"
-sr --verbose "src/**/*.js" '" + variable + "' "\`\${variable}\`"
-```
-
-## Troubleshooting
-
-### Common Issues and Solutions
-
-#### Issue: "No files found matching pattern"
-
-**Symptoms:**
-- Command completes quickly with "No files found" message
-- Exit code 2
-
-**Solutions:**
-
-```bash
-# 1. Check if pattern is quoted correctly
-# Wrong (shell expands pattern):
-sr *.txt "search" "replace"
-
-# Correct (sr handles pattern):
-sr "*.txt" "search" "replace"
-
-# 2. Check current directory
-pwd
-ls -la
-
-# 3. Test pattern with find
-find . -name "*.txt" -type f | head -5
-
-# 4. Use verbose mode for debugging
-sr -v "*.txt" "search" "replace"
-
-# 5. Try explicit file list
-sr file1.txt file2.txt "search" "replace"
-```
-
-#### Issue: "Binary file detected, use --binary flag"
-
-**Symptoms:**
-- Processing stops with binary file warning
-- Exit code 6
-
-**Solutions:**
-
-```bash
-# 1. Verify file type
-file suspicious-file.bin
-
-# 2. Check if file is actually text
-head -c 100 suspicious-file.bin | cat -A
-
-# 3. Use appropriate detection method
-sr --binary-method=file_only "*.bin" "search" "replace"
-
-# 4. Skip binary files (if they shouldn't be processed)
-sr --exclude-patterns="*.bin,*.exe,*.dll" "*.txt" "search" "replace"
-
-# 5. Process binary files explicitly (CAREFUL!)
-sr --binary "*.bin" "search" "replace"
-```
-
-#### Issue: "Permission denied" on backup creation
-
-**Symptoms:**
-- Operation fails with permission errors
-- Exit code 4 or 5
-
-**Solutions:**
-
-```bash
-# 1. Check current directory permissions
-ls -la .
-
-# 2. Use different backup location
-sr -nbf "*.txt" "search" "replace"
-
-# 3. Run with appropriate privileges
-sudo sr "*.txt" "search" "replace"
-
-# 4. Change backup directory
-BACKUP_DIR="/tmp/sr-backups" sr "*.txt" "search" "replace"
-
-# 5. Disable backups (last resort)
-sr -nb "*.txt" "search" "replace"
-```
-
-#### Issue: Rollback not working as expected
-
-**Symptoms:**
-- `--rollback` doesn't restore files
-- "No backup directories found" message
-
-**Solutions:**
-
-```bash
-# 1. List available backups
-sr --rollback-list
-
-# 2. Check backup directory exists
-ls -la | grep sr.backup
-
-# 3. Verify backup integrity
-ls -la sr.backup.*/.sr_session_metadata
-
-# 4. Specify exact backup directory
-sr --rollback=sr.backup.20240115_143022_123456789
-
-# 5. Check file permissions in backup
-ls -la sr.backup.*/* | head -10
-```
-
-### Debug Mode Techniques
-
-```bash
-# Enable comprehensive debugging
-sr -d "*.conf" "old" "new" 2>&1 | tee debug.log
-
-# Debug specific components
-SR_DEBUG=true sr "*.txt" "search" "replace"
-
-# Debug file discovery only
-sr -d --dry-run "*.js" "dummy" "dummy" 2>&1 | grep -i "found\|match"
-
-# Debug binary detection
-sr -d --dry-run "*.bin" "dummy" "dummy" 2>&1 | grep -i "binary"
-
-# Debug session management
-sr -d --dry-run "*.txt" "a" "b" 2>&1 | grep -i "session\|backup"
-```
-
-### Diagnostic Commands
-
-```bash
-# Check system compatibility
-for tool in bash find sed grep file stat; do
-    if command -v $tool >/dev/null; then
-        version=$($tool --version 2>&1 | head -1 | cut -d' ' -f2-4)
-        echo "✓ $tool: $version"
-    else
-        echo "✗ $tool: NOT FOUND"
-    fi
-done
-
-# Test sr functionality
-test_sr() {
-    echo "Testing sr functionality..."
-    
-    # Create test files
-    echo "test content old" > test1.txt
-    echo "test content old" > test2.txt
-    
-    # Test basic replacement
-    sr --dry-run "*.txt" "old" "new"
-    
-    # Test backup creation
-    sr "*.txt" "old" "new"
-    
-    # Test rollback
-    sr --rollback
-    
-    # Cleanup
-    rm -f test1.txt test2.txt
-    echo "Test completed"
-}
-
-# Run diagnostic
-test_sr
-```
-
-### Performance Issues
-
-**Symptoms:**
-- Slow processing of many small files
-- High memory usage with large files
-- Timeout on network filesystems
-
-**Solutions:**
-
-```bash
-# 1. Limit search depth
-sr -md 3 "*.js" "search" "replace"
-
-# 2. Exclude large directories
-sr -xd node_modules,dist,vendor,target "*.js" "search" "replace"
-
-# 3. Set file size limits
-sr -xs 10 "*.log" "search" "replace"  # Max 10MB files
-
-# 4. Use faster binary detection
-sr --binary-method=grep_only "*.txt" "search" "replace"
-
-# 5. Process in batches
-find . -name "*.js" -type f | split -l 100 - batch-
-for batch in batch-*; do
-    sr -- $(cat "$batch") "search" "replace"
-    rm "$batch"
-done
-```
-
-## Performance Optimization
-
-### Benchmark Results
-
-**Test Environment:** Ubuntu 20.04, SSD, 8-core CPU, 16GB RAM
-
-| Scenario | Files | Total Size | Time | Rate |
-|----------|-------|------------|------|------|
-| Small text files | 1,000 | 10 MB | 2.1s | 476 files/s |
-| Mixed file types | 500 | 100 MB | 3.8s | 132 files/s |
-| Large files | 10 | 1 GB | 12.4s | 0.8 files/s |
-| Binary detection | 5,000 | 50 MB | 4.2s | 1,190 files/s |
-| Session rollback | 100 | 10 MB | 0.8s | 125 files/s |
-
-### Optimization Techniques
-
-#### File Discovery Optimization
-
-```bash
-# Limit recursion depth
-sr -md 5 "*.conf" "search" "replace"
-
-# Use specific patterns instead of wildcards
-sr "src/**/*.js" "search" "replace"  # Better than "*.js"
-
-# Exclude directories early
-sr -xd .git,node_modules,dist,build "*.js" "search" "replace"
-
-# Use find-opts for complex filtering
-sr --find-opts="-type f -size -1M" "*.log" "search" "replace"
-```
-
-#### Processing Optimization
-
-```bash
-# Skip binary detection for known text files
-sr --binary-method=grep_only "*.txt" "search" "replace"
-
-# Adjust binary check size
-sr --binary-check-size=512 "*.txt" "search" "replace"
-
-# Disable unnecessary features
-sr -nb -xh "*.tmp" "search" "replace"
-
-# Use appropriate replace mode
-sr --replace-mode=copy "*.txt" "search" "replace"
-```
-
-#### Memory Optimization
-
-```bash
-# Limit file size
-sr -xs 50 "*.log" "search" "replace"  # Skip files > 50MB
-
-# Process in batches
-find . -name "*.js" -type f -print0 | xargs -0 -n 100 sr -- "search" "replace"
-
-# Use streaming for large files
-sr --sed-opts="-u" "largefile.txt" "search" "replace"
-```
-
-### Parallel Processing
-
-```bash
-#!/bin/bash
-# File: sr-parallel.sh
-# Parallel processing wrapper for large file sets
-
-PATTERN="*.js"
-SEARCH="oldFunction"
-REPLACE="newFunction"
-THREADS=4
-
-# Split file list
-find . -name "$PATTERN" -type f | split -n "l/$THREADS" - filelist-
-
-# Process in parallel
-for list in filelist-*; do
-    (
-        echo "Processing $list"
-        sr -- $(cat "$list") "$SEARCH" "$REPLACE"
-        rm "$list"
-    ) &
-done
-
-# Wait for all jobs
-wait
-echo "All parallel jobs completed"
-```
-
-### Caching Strategies
-
-```bash
-#!/bin/bash
-# File: sr-cached.sh
-# Cached file discovery for repeated operations
-
-CACHE_DIR="/tmp/sr-cache"
-PATTERN="*.js"
-CACHE_FILE="$CACHE_DIR/$(echo "$PATTERN" | md5sum | cut -d' ' -f1).cache"
-
-# Use cache if fresh (less than 1 hour old)
-if [[ -f "$CACHE_FILE" ]] && [[ $(find "$CACHE_FILE" -mmin -60) ]]; then
-    echo "Using cached file list"
-    FILES=$(cat "$CACHE_FILE")
-else
-    echo "Building cache"
-    mkdir -p "$CACHE_DIR"
-    find . -name "$PATTERN" -type f > "$CACHE_FILE"
-    FILES=$(cat "$CACHE_FILE")
-fi
-
-# Process files
-sr -- $FILES "search" "replace"
-```
-
-## Security Considerations
-
-### Risk Assessment
-
-| Risk Level | Scenario | Mitigation |
-|------------|----------|------------|
-| **Critical** | Processing binary files accidentally | Multi-layer detection, explicit `--binary` flag required |
-| **High** | Permission escalation via backup files | Preserve ownership, validate file paths |
-| **Medium** | Resource exhaustion with large files | File size limits, depth limits |
-| **Low** | Information disclosure in metadata | Session metadata contains only command info |
-
-### Security Best Practices
-
-#### 1. Access Control
-
-```bash
-# Run with least privileges
-sudo -u appuser sr "*.conf" "search" "replace"
-
-# Use dedicated service account
-useradd -r -s /bin/false sr-user
-sudo -u sr-user sr "*.conf" "search" "replace"
-
-# Restrict backup directory access
-mkdir -p /var/backups/sr
-chmod 700 /var/backups/sr
-chown root:root /var/backups/sr
-```
-
-#### 2. Input Validation
-
-```bash
-# Validate patterns before processing
-validate_pattern() {
-    local pattern="$1"
-    
-    # Reject patterns with directory traversal
-    if [[ "$pattern" == *".."* ]] || [[ "$pattern" == *"/"* ]]; then
-        echo "Error: Pattern may contain directory traversal"
-        return 1
-    fi
-    
-    # Limit pattern complexity
-    if [[ "$pattern" == *"**"* ]] && [[ "$pattern" != "**"* ]]; then
-        echo "Error: Complex glob patterns not allowed"
-        return 1
-    fi
-    
-    return 0
-}
-
-# Safe wrapper
-sr_safe() {
-    validate_pattern "$1" || return 1
-    sr "$@"
-}
-```
-
-#### 3. Audit Logging
-
-```bash
-#!/bin/bash
-# File: sr-audit.sh
-# Comprehensive audit logging wrapper
-
-AUDIT_LOG="/var/log/sr-audit.log"
-SESSION_LOG="/var/log/sr-sessions.log"
-
-# Log all invocations
-log_invocation() {
-    local user=$(whoami)
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local session="${SESSION_ID:-pre-init}"
-    
-    echo "$timestamp | INVOKE | user=$user | session=$session | args=$*" >> "$AUDIT_LOG"
-}
-
-# Log session creation
-log_session() {
-    local session="$1"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
-    echo "$timestamp | SESSION | id=$session | args=${*:2}" >> "$SESSION_LOG"
-}
-
-# Main execution
-log_invocation "$@"
-
-# Capture session ID
-SESSION_FILE=$(mktemp)
-sr "$@" 2>&1 | tee "$SESSION_FILE"
-EXIT_CODE=$?
-
-# Extract session ID
-SESSION_ID=$(grep "Session ID:" "$SESSION_FILE" | cut -d: -f2 | xargs)
-if [[ -n "$SESSION_ID" ]]; then
-    log_session "$SESSION_ID" "$@"
-fi
-
-rm "$SESSION_FILE"
-exit $EXIT_CODE
-```
-
-#### 4. Network Security
-
-```bash
-# Disable network operations in secure environments
-export SR_NO_NETWORK=true
-
-# Validate URLs in replacements
-validate_url() {
-    local url="$1"
-    
-    # Allow only specific domains in production
-    if [[ "$ENVIRONMENT" == "prod" ]]; then
-        if [[ ! "$url" =~ ^https://(api\.example\.com|cdn\.example\.com) ]]; then
-            echo "Error: URL not allowed in production: $url"
-            return 1
-        fi
-    fi
-    
-    return 0
-}
-
-# Safe replacement wrapper
-sr_replace_safe() {
-    validate_url "$3" || return 1
-    sr "$1" "$2" "$3"
-}
-```
-
-### Compliance Considerations
-
-#### GDPR Compliance
-
-```bash
-# PII detection and redaction
-sr --dry-run -E "*.log" \
-    "([0-9]{3}-[0-9]{2}-[0-9]{4})" \
-    "[SSN REDACTED]"
-
-# Email address redaction
-sr --dry-run -E "*.txt" \
-    "([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})" \
-    "[EMAIL REDACTED]"
-
-# Credit card redaction
-sr --dry-run -E "*.db" \
-    "([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4})" \
-    "[CC REDACTED]"
-```
-
-#### HIPAA Compliance
-
-```bash
-# PHI detection patterns
-PHI_PATTERNS=(
-    "patient name"
-    "medical record"
-    "diagnosis code"
-    "treatment plan"
-)
-
-for pattern in "${PHI_PATTERNS[@]}"; do
-    sr --dry-run -i "*.doc" "$pattern" "[PHI REDACTED]"
-done
-```
-
-#### PCI DSS Compliance
-
-```bash
-# Cardholder data detection
-sr --dry-run -E "*.csv" \
-    "\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14})\b" \
-    "[PAN REDACTED]"
-
-# Track data detection
-sr --dry-run -E "*.log" \
-    "%B[0-9]{16}\^" \
-    "[TRACK DATA REDACTED]"
-```
-
-## Version History
-
-### Version 6.1.0 (Current) - January 2025
-
-**Major Enhancements:**
-- Enhanced configuration system with tool-specific parameter passing
-- Extended search options: case-insensitive, word boundaries, extended regex
-- Direct flag passing to find/sed/grep via `--find-opts`, `--sed-opts`, `--grep-opts`
-- Improved compatibility with GNU/BSD sed variations
-- Configurable base tool commands and default flags
-- Enhanced documentation with complete tool flag reference
-
-**New Features:**
-- Tool configuration variables in script header
-- Extended regex support with `-E, --extended-regex`
-- Case-insensitive matching with `-i, --ignore-case`
-- Word boundary matching with `-w, --word-boundary`
-- Multi-line mode support with `-m, --multiline`
-- Line number display with `-n, --line-numbers`
-- Dot matches newline with `--dot-all`
-- Global replace control with `--no-global`
-
-**Improvements:**
-- Performance optimization for large file sets
-- Better handling of special characters and escape sequences
-- Improved binary file detection accuracy
-- Enhanced error messages and debugging information
-- More robust session tracking and metadata management
-
-### Version 6.0.0 - December 2025
-
-**Major Features:**
-- Session-based rollback with complete metadata tracking
-- Multi-layer binary file detection system
-- Session ID generation with nanosecond precision
-- Enhanced backup metadata storage
-- Comprehensive rollback debugging system
-
-**Key Improvements:**
-- Robust error handling with detailed error messages
-- Performance optimization for large file sets
-- Better handling of special characters and escape sequences
-- Improved binary file detection accuracy
-
-### Version 5.0.0 - October 2024
-
-**Major Features:**
-- Predictable argument parsing system
-- Multi-platform compatibility (Linux, macOS, BSD)
-- Configurable safety limits and exclusions
-- Comprehensive logging system
-- Dry-run mode for testing
-
-### Version 4.0.0 - August 2023
-
-**Major Features:**
-- Recursive directory traversal
-- Binary file detection and exclusion
-- Backup creation system
-- File ownership preservation
-- Exclusion patterns and directories
-
-### Version 3.0.0 - June 2023
-
-**Major Features:**
-- Basic search and replace functionality
-- Simple backup system
-- Error handling framework
-- Basic logging
-
-### Version 2.0.0 - April 2023
-
-**Major Features:**
-- Initial release with core functionality
-- File pattern matching
-- Basic text replacement
-- Minimal safety features
-
-### Version 1.0.0 - January 2023
-
-**Initial Release:**
-- Proof of concept implementation
-- Basic command-line interface
-- Simple file processing
-
-## Contributing
-
-We welcome contributions from the community! Here's how you can help:
-
-### Development Workflow
-
-1. **Fork the Repository**
-   ```bash
-   git clone https://github.com/paulmann/sr-search-replace.git
-   cd sr-search-replace
-   git checkout -b feature/your-feature-name
-   ```
-
-2. **Make Changes**
-   ```bash
-   # Test your changes thoroughly
-   ./sr.sh --dry-run -v "*.txt" "test" "TEST"
-   
-   # Run all tests
-   ./test-runner.sh
-   
-   # Check for shell script issues
-   shellcheck sr.sh
-   ```
-
-3. **Submit Pull Request**
-   - Ensure code follows existing style conventions
-   - Add comments for complex logic
-   - Update documentation if adding features
-   - Test with various Bash versions (4.0+)
-
-### Coding Standards
-
-```bash
-#!/bin/bash
-# Example of coding standards:
-
-# 1. Use readonly for constants
-readonly DEFAULT_MAX_DEPTH=100
-
-# 2. Use declare -g for global variables
-declare -g PROCESSED_FILES=0
-
-# 3. Use local for function variables
-function example() {
-    local local_var="value"
-    # ...
-}
-
-# 4. Use meaningful variable names
-declare -gi TOTAL_REPLACEMENTS=0  # 'i' for integer
-
-# 5. Document complex functions
-# Function: perform_replace
-# Description: Perform search and replace on a single file
-# Parameters:
-#   $1: File path
-#   $2: Search string (escaped)
-#   $3: Replace string (escaped)
-#   $4: Timestamp
-# Returns: 0 on success, error code on failure
-perform_replace() {
-    # Function implementation
-}
-```
-
-### Testing Guidelines
-
-```bash
-# Run comprehensive test suite
-./run-tests.sh
-
-# Test specific functionality
-test_binary_detection() {
-    # Test cases for binary detection
-    # ...
-}
-
-test_rollback_system() {
-    # Test cases for rollback
-    # ...
-}
-
-test_performance() {
-    # Performance benchmarks
-    # ...
-}
-```
-
-### Documentation Updates
-
-When adding new features:
-
-1. Update README.md with new functionality
-2. Add examples for new options
-3. Update version history
-4. Consider adding tutorial or guide if feature is complex
-5. Update command-line help (`show_help` function)
-
-## License
-
-MIT License
-
-Copyright (c) 2023-2025 Mikhail Deynekin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-## Support
-
-### Documentation Resources
-
-- 📖 [Wiki Documentation](https://github.com/paulmann/sr-search-replace/wiki) - Complete user guide
-- 📘 [Command Reference](https://github.com/paulmann/sr-search-replace/wiki/Command-Reference) - Detailed option reference
-- 🚀 [Quick Start Tutorial](https://github.com/paulmann/sr-search-replace/wiki/Quick-Start-Tutorial) - Step-by-step guide
-- 📚 [Installation Guide](https://github.com/paulmann/sr-search-replace/wiki/Installation-Guide) - Multi-platform installation
-- 💡 [Basic Examples](https://github.com/paulmann/sr-search-replace/wiki/Basic-Examples) - Common use cases
-
-
-### Community Support
-
-- **🐛 [Issue Tracker](https://github.com/paulmann/sr-search-replace/issues)** - Report bugs or request features
-- **💬 [Discussions](https://github.com/paulmann/sr-search-replace/discussions)** - Ask questions and share ideas
-- **📧 [Email Support](mailto:mid1977@gmail.com)** - Direct support for critical issues
-- **🔧 [Professional Support](https://deynekin.com/consulting)** - Commercial support and consulting
-
-### Contributing to Support
-
-- **🌍 [Community Discussions](https://github.com/paulmann/sr-search-replace/discussions)** - Help translate and share knowledge
-- **✍️ [Contributing Guide](https://github.com/paulmann/sr-search-replace/wiki/Contributing-Guide)** - How to contribute code
-- **🐛 [Troubleshooting](https://github.com/paulmann/sr-search-replace/wiki/Troubleshooting)** - Common issues and solutions
-- **🔍 [Code Review](https://github.com/paulmann/sr-search-replace/pulls)** - Review pull requests
-
-
-## FAQ
-
-### Frequently Asked Questions
-
-#### Q: Why use `sr` instead of `sed -i` or `perl -pi -e`?
-**A:** `sr` provides comprehensive safety features that basic tools lack:
-- Automatic backups before modification
-- Binary file detection to prevent corruption
-- Session tracking for reliable rollback
-- Configurable safety limits and exclusions
-- Detailed logging and audit trails
-
-#### Q: Is `sr` safe to use on production systems?
-**A:** Yes, with proper precautions:
-- Always use `--dry-run` first to preview changes
-- Set appropriate safety limits (`-md`, `-xs`)
-- Enable backups (default behavior)
-- Test in staging environment first
-- Use session tracking for easy rollback
-
-#### Q: How does `sr` handle very large files?
-**A:** `sr` includes several protections:
-- Configurable file size limits (`-xs` option)
-- Streaming processing for large files
-- Memory-efficient operations
-- Optional chunked processing for huge files
-
-#### Q: Can `sr` process binary files?
-**A:** Yes, but only with explicit permission:
-- Binary files are detected and skipped by default
-- Use `--binary` flag to allow processing
-- Multi-layer detection ensures accurate identification
-- Always test with `--dry-run` first
-
-#### Q: How does the rollback system work?
-**A:** The rollback system provides:
-- Automatic session tracking for each operation
-- Complete backup of modified files
-- Metadata including command, timestamp, and user
-- One-command restoration with `--rollback`
-- Interactive confirmation with timeout
-
-#### Q: Is `sr` compatible with my operating system?
-**A:** `sr` is compatible with:
-- Linux (all major distributions)
-- macOS (10.15+ with GNU coreutils)
-- BSD systems (with some limitations)
-- Windows WSL/WSL2 (fully compatible)
-
-#### Q: How can I extend `sr` for my specific needs?
-**A:** Several extension mechanisms are available:
-- Environment variables for configuration
-- Wrapper scripts for custom behavior
-- Tool-specific parameter passing (`--find-opts`, etc.)
-- Source modification (open source MIT license)
-
-#### Q: What's the performance impact of using `sr`?
-**A:** Minimal overhead with significant benefits:
-- File discovery: ~1000 files/second
-- Binary detection: ~10,000 files/second
-- Replacement: 50-500 replacements/second
-- Backup creation: ~100 files/second
-- Rollback: ~200 files/second
-
-#### Q: How do I contribute to `sr` development?
-**A:** Contributions are welcome:
-- Fork the repository on GitHub
-- Follow coding standards and conventions
-- Add tests for new functionality
-- Update documentation
-- Submit pull requests
+A project `.srrc` is worth committing: it turns the team's exclusion list,
+confirmation threshold and backup policy into repository content instead of
+tribal knowledge.
 
 ---
 
-**Made with ❤️ for developers and system administrators**
+## Self-update
 
-*Search & Replace (sr) - Because your data is too important for simple text manipulation.*
+```sh
+sr update --check              # is there a newer release?
+sr update                      # install it
+sr update --version 7.1.0      # pin a specific version
+sr update --channel prerelease
+sr update --source npm         # ask the npm registry instead of GitHub
+```
+
+`sr doctor` reports the installation type, which decides how an update is
+applied:
+
+| Installation | What `sr update` does |
+| --- | --- |
+| **standalone** (zipapp / installed script) | downloads the release asset, **verifies its SHA-256** against the published `sr.pyz.sha256`, smoke-tests it in a subprocess, keeps `<file>.bak`, then replaces the file atomically |
+| **pip / pipx** | prints the exact upgrade command (the environment owns those files) |
+| **npm** | prints `npm install -g sr-search-replace@latest` |
+| **source checkout** | refuses, and tells you to `git pull && make install` |
+
+Every step either succeeds or leaves the current installation untouched — a
+checksum mismatch or a failing smoke test installs nothing.
+
+**Background check.** At most once per 24 h, sr looks for a newer release on a
+*daemon thread with a 2.5 s budget* and caches the answer under
+`$XDG_CACHE_HOME/sr/update-check.json`. It never blocks a run: on a slow or
+absent network nothing is printed and the cache is used next time. Disable it
+with `--no-update-check` or `SR_NO_UPDATE_CHECK=1` — a good idea in CI and on
+air-gapped machines.
+
+```sh
+sr update --version 7.0.0 && export SR_NO_UPDATE_CHECK=1     # pin
+SR_GITHUB_TOKEN=… sr update --check                          # higher API limit
+```
+
+---
+
+## Shell completion and man page
+
+```sh
+sr completions --install                 # auto-detects bash / zsh / fish
+sr completions bash >> ~/.bash_completion
+sr completions zsh  > "${fpath[1]}/_sr"
+sr completions fish > ~/.config/fish/completions/sr.fish
+man sr
+```
+
+Both are **generated from the live option schema** (`make completions`,
+`make man`), so a new flag appears in the parser, the config layer, the help
+system, the completions and the man page from one declaration — and CI fails if
+a committed artefact drifts out of date.
+
+`sr help` pages its output through `$PAGER` on a terminal; `--no-pager`
+disables that. `sr … | head` exits 0 rather than dumping a `BrokenPipeError`.
+
+---
+
+## Option reference
+
+61 tunables. Every one is also a config-file key and an `SR_*` variable.
+`sr help options` prints this table with examples; `sr help --<flag>` explains
+one option in depth.
+
+<!-- BEGIN OPTIONS — generated by scripts/gen_options_table.py; do not edit -->
+
+60 cross-command options. Each one is also a configuration key (see `sr config list`) and an `SR_*` environment variable.
+
+<details open>
+<summary><b>Target selection</b> (18)</summary>
+
+| Flag | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `-C`, `--target` `DIR` | `SR_TARGET` | `.` | Directory to operate on (default: the current directory). *(`replace`, `find`, `diff`, `rename`)* |
+| `-p`, `--pattern` `GLOB` | `SR_PATTERN` | — | Only files whose name matches GLOB (repeatable). Default: every text file. *(`replace`, `find`, `diff`, `rename`)* |
+| `--file` `PATH` | `SR_FILE` | — | Explicit file to process, bypassing pattern matching (repeatable). *(`replace`, `find`, `diff`, `rename`)* |
+| `--files-from` `FILE` | `SR_FILES_FROM` | — | Read the list of target files from FILE, one per line ('-' for stdin). *(`replace`, `find`, `diff`, `rename`)* |
+| `--include` `GLOB` | `SR_INCLUDE` | — | Additional include glob, may contain '/' and '**' (repeatable). *(`replace`, `find`, `diff`, `rename`)* |
+| `--exclude` `GLOB` | `SR_EXCLUDE` | — | Exclude glob; wins over --include and --pattern (repeatable). *(`replace`, `find`, `diff`, `rename`)* |
+| `--exclude-dir` `NAME` | `SR_EXCLUDE_DIR` | — | Prune a directory by name (repeatable; adds to the built-in list). *(`replace`, `find`, `diff`, `rename`)* |
+| `--no-default-excludes` | `SR_NO_DEFAULT_EXCLUDES` | — | Do not apply the built-in exclude lists (node_modules, dist, *.bak …). *(`replace`, `find`, `diff`, `rename`)* |
+| `-1`, `--no-recursive` | `SR_NO_RECURSIVE` | — | Only the target directory itself, no subdirectories. *(`replace`, `find`, `diff`, `rename`)* |
+| `--max-depth` `N` | `SR_MAX_DEPTH` | — | Descend at most N levels below the target directory. *(`replace`, `find`, `diff`, `rename`)* |
+| `--hidden` | `SR_HIDDEN` | — | Also process dotfiles and dot-directories. *(`replace`, `find`, `diff`, `rename`)* |
+| `--symlinks` | `SR_SYMLINKS` | — | Follow symlinked files (they are skipped by default). *(`replace`, `find`, `diff`, `rename`)* |
+| `--gitignore` | `SR_GITIGNORE` | — | Honour .gitignore files (including the global excludesfile). *(`replace`, `find`, `diff`, `rename`)* |
+| `--max-size` `SIZE` | `SR_MAX_SIZE` | `100.0 MB` | Skip files larger than SIZE (default 100MB; a bare number means megabytes). *(`replace`, `find`, `diff`, `rename`)* |
+| `--min-size` `SIZE` | `SR_MIN_SIZE` | — | Skip files smaller than SIZE. *(`replace`, `find`, `diff`, `rename`)* |
+| `--newer-than` `AGE` | `SR_NEWER_THAN` | — | Only files modified within AGE (e.g. 24h, 7d, 30m). *(`replace`, `find`, `diff`, `rename`)* |
+| `--older-than` `AGE` | `SR_OLDER_THAN` | — | Only files not modified within AGE. *(`replace`, `find`, `diff`, `rename`)* |
+| `--binary` | `SR_BINARY` | — | Process files that look binary instead of skipping them. *(`replace`, `find`, `diff`, `rename`)* |
+
+</details>
+
+<details open>
+<summary><b>Matching</b> (12)</summary>
+
+| Flag | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `-R`, `--regex` | `SR_REGEX` | — | Treat PATTERN as a Python regular expression. *(`replace`, `find`, `diff`, `rename`)* |
+| `--ere` | `SR_ERE` | — | Treat PATTERN as a POSIX Extended Regular Expression (grep -E syntax). *(`replace`, `find`, `diff`, `rename`)* |
+| `--pcre` | `SR_PCRE` | — | Treat PATTERN as a Perl-compatible regular expression. *(`replace`, `find`, `diff`, `rename`)* |
+| `--pattern-kind` `KIND` | `SR_PATTERN_KIND` | `fixed` | Explicit pattern kind: fixed, regex, ere or pcre — one of `fixed`, `regex`, `ere`, `pcre`. *(`replace`, `find`, `diff`, `rename`)* |
+| `-i`, `--ignore-case` | `SR_IGNORE_CASE` | — | Case-insensitive matching. *(`replace`, `find`, `diff`, `rename`)* |
+| `-w`, `--word-boundary` | `SR_WORD_BOUNDARY` | — | Match whole words only. *(`replace`, `find`, `diff`, `rename`)* |
+| `-m`, `--multiline` | `SR_MULTILINE` | — | Allow the pattern to span line boundaries ('.' matches newline). *(`replace`, `find`, `diff`, `rename`)* |
+| `--no-escapes` | `SR_NO_ESCAPES` | — | Do not interpret \n, \t, \xNN in fixed patterns/replacements. *(`replace`, `find`, `diff`, `rename`)* |
+| `-L`, `--line-range` `RANGE` | `SR_LINE_RANGE` | — | Restrict edits to a line range: 10, 10-20, 10- or -20. *(`replace`, `find`, `diff`, `rename`)* |
+| `-M`, `--max-count` `N` | `SR_MAX_COUNT` | — | Replace at most N occurrences per file. *(`replace`, `find`, `diff`, `rename`)* |
+| `--no-global` | `SR_NO_GLOBAL` | — | Replace only the first occurrence on each line. *(`replace`, `find`, `diff`, `rename`)* |
+| `--context` `N` | `SR_CONTEXT` | `3` | Lines of context around a match in preview/diff output (default 3). *(`replace`, `find`, `diff`, `rename`)* |
+
+</details>
+
+<details open>
+<summary><b>Action</b> (13)</summary>
+
+| Flag | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `-n`, `--dry-run` | `SR_DRY_RUN` | — | Report what would change; never write, never create a session. *(`replace`, `find`, `diff`, `rename`)* |
+| `--diff` | `SR_DIFF` | — | Show a unified diff of every change (implies a preview). *(`replace`, `find`, `diff`, `rename`)* |
+| `-I`, `--interactive` | `SR_INTERACTIVE` | — | Confirm every hunk before it is written. *(`replace`, `find`, `diff`, `rename`)* |
+| `--write` `MODE` | `SR_WRITE` | `in-place` | Where the result goes: in-place (default), stdout, or --output-dir — one of `in-place`, `stdout`, `dir`. *(`replace`)* |
+| `-o`, `--output-dir` `DIR` | `SR_OUTPUT_DIR` | — | Write modified copies under DIR, mirroring the tree (needs --write=dir). *(`replace`)* |
+| `--suffix` `EXT` | `SR_SUFFIX` | — | When writing copies, append EXT to the file name instead of mirroring. *(`replace`)* |
+| `--rename` | `SR_RENAME` | — | Also apply the replacement to file and directory names. *(`replace`)* |
+| `--rename-only` | `SR_RENAME_ONLY` | — | Rename matching files/directories without touching their content. *(`replace`)* |
+| `-E`, `--encoding` `NAME` | `SR_ENCODING` | — | Force an encoding (utf-8, cp1251, latin-1 …); default is auto-detect. *(`replace`, `find`, `diff`, `rename`)* |
+| `--encoding-error` `POLICY` | `SR_ENCODING_ERROR` | `strict` | What to do with undecodable bytes: strict (skip), replace, ignore — one of `strict`, `replace`, `ignore`. *(`replace`, `find`, `diff`, `rename`)* |
+| `--line-endings` `MODE` | `SR_LINE_ENDINGS` | `preserve` | Keep the file's line endings (default) or normalise to LF/CRLF — one of `preserve`, `lf`, `crlf`. *(`replace`)* |
+| `--preserve-mtime` | `SR_PRESERVE_MTIME` | — | Restore the original modification time after writing. *(`replace`)* |
+| `-y`, `--yes` | `SR_YES` | — | Answer 'yes' to every prompt; required for unattended runs in CI. *(`replace`, `rename`, `rollback`, `sessions`, `update`)* |
+
+</details>
+
+<details open>
+<summary><b>Safety & backups</b> (9)</summary>
+
+| Flag | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `--backup`, `--no-backup` | `SR_BACKUP` | on | Store originals in a session so the run can be rolled back (default on). *(`replace`, `rename`)* |
+| `--backup-dir` `DIR` | `SR_BACKUP_DIR` | — | Where to keep sessions (default <target>/.sr). Use an absolute path to keep them out of the tree. *(`replace`, `rename`)* |
+| `--keep` `N` | `SR_KEEP` | `20` | Keep at most N sessions; older ones are pruned after a run (default 20, 0 disables pruning). *(`replace`, `rename`, `sessions`)* |
+| `--keep-age` `AGE` | `SR_KEEP_AGE` | — | Also drop sessions older than AGE (e.g. 30d). *(`replace`, `rename`, `sessions`)* |
+| `--atomic`, `--no-atomic` | `SR_ATOMIC` | on | Write via a temporary file + rename (default) or rewrite the inode in place. *(`replace`)* |
+| `--lock`, `--no-lock` | `SR_LOCK` | on | Take an advisory lock so two sr runs cannot interleave (default on). *(`replace`, `rename`)* |
+| `--confirm-threshold` `N` | `SR_CONFIRM_THRESHOLD` | `50` | Ask for confirmation when more than N files would change (0 disables). *(`replace`, `rename`)* |
+| `--allow-root` | `SR_ALLOW_ROOT` | — | Permit a mutating run with euid 0 (refused by default). *(`replace`, `rename`)* |
+| `-f`, `--force` | `SR_FORCE` | — | Override safety guards (drifted files, read-only warnings, existing targets). *(`replace`, `rename`, `rollback`)* |
+
+</details>
+
+<details open>
+<summary><b>Output & reporting</b> (8)</summary>
+
+| Flag | Environment | Default | What it does |
+| --- | --- | --- | --- |
+| `-v`, `--verbose` | `SR_VERBOSE` | — | Show per-file results and the reason skipped files were skipped. *(all)* |
+| `-q`, `--quiet` | `SR_QUIET` | — | Only errors; suitable for scripts. *(all)* |
+| `--verbosity` `LEVEL` | `SR_VERBOSITY` | `normal` | Set the log level explicitly (overrides -v/-q) — one of `quiet`, `normal`, `verbose`, `debug`. *(all)* |
+| `--color`, `--no-color` `WHEN` | `SR_COLOR` | `auto` | Colourise output. Honours NO_COLOR and CLICOLOR_FORCE — one of `auto`, `always`, `never`. *(all)* |
+| `--json` | `SR_JSON` | — | Emit a single JSON document on stdout; diagnostics go to stderr. *(all)* |
+| `--porcelain` | `SR_PORCELAIN` | — | Emit stable 'path:line:col:text' records, one per match. *(`replace`, `find`, `diff`, `rename`)* |
+| `--progress`, `--no-progress` | `SR_PROGRESS` | on | Show a progress bar on a terminal (default on). *(`replace`, `find`, `diff`, `rename`)* |
+| `--summary`, `--no-summary` | `SR_SUMMARY` | on | Print the run summary (default on). *(`replace`, `find`, `diff`, `rename`)* |
+
+</details>
+
+<details>
+<summary><b>Command-local options</b> (accepted by one command only)</summary>
+
+These are declared next to their subparser rather than in the shared
+schema, because they exist for exactly one command. They are generated
+into this table from the live parser, so they cannot go stale.
+
+**Global**
+
+| Flag | What it does |
+| --- | --- |
+| `--help-all` | Show help for every subcommand and option |
+| `-V`, `--version` | Print version, license and update information |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+
+**`sr replace`**
+
+| Flag | What it does |
+| --- | --- |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+| `--glob` `GLOB` | File name pattern (repeatable); alternative to the positional GLOB |
+
+**`sr find`**
+
+| Flag | What it does |
+| --- | --- |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+| `--glob` `GLOB` | File name pattern (repeatable) |
+| `-c`, `--count` | Print only the number of matches per file (and a total) |
+| `-l`, `--files-with-matches` | Print only the names of files that contain a match |
+| `-A`, `--after-context` `N` | Print N lines after each match |
+| `-B`, `--before-context` `N` | Print N lines before each match |
+| `--highlight` | Force match highlighting even when writing to a file |
+
+**`sr diff`**
+
+| Flag | What it does |
+| --- | --- |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+| `--session` `SESSION` | Instead of computing a diff, show the diff stored in a session |
+
+**`sr rename`**
+
+| Flag | What it does |
+| --- | --- |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+| `--directories` | Also rename directories that match (default: files only) |
+
+**`sr rollback`**
+
+| Flag | What it does |
+| --- | --- |
+| `--no-safety-snapshot` | Do not record the pre-rollback state (not recommended) |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+
+**`sr sessions`**
+
+| Flag | What it does |
+| --- | --- |
+| `--limit` `N` | List at most N sessions (default 20) |
+| `--files` | Include the per-file list in `show` |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+
+**`sr update`**
+
+| Flag | What it does |
+| --- | --- |
+| `--check` | Only report whether an update exists |
+| `--version` `VERSION` | Install a specific version (e.g. 7.1.0) |
+| `--channel` | Release channel (default: stable) |
+| `--source` | Where to fetch release information (default: github) |
+| `--repo` `OWNER/NAME` | Override the GitHub repository |
+| `--timeout` `SECONDS` | Network timeout (default 20) |
+| `--path` `FILE` | Standalone file to update (default: auto-detect) |
+| `--no-verify` | Install without SHA-256 verification. Verification is fail-closed by default, so this is the only way past a missing checksum — use it only for a mirror you trust |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+
+**`sr doctor`**
+
+| Flag | What it does |
+| --- | --- |
+| `--offline` | Skip the network reachability probe |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+
+**`sr completions`**
+
+| Flag | What it does |
+| --- | --- |
+| `--install` | Write the script into the shell's completion directory |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+
+**`sr config`**
+
+| Flag | What it does |
+| --- | --- |
+| `--option` `NAME` | Option name for `show`, e.g. `sr config show --option max-size` |
+| `--show-origin` | Show where each value comes from |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+
+**`sr selftest`**
+
+| Flag | What it does |
+| --- | --- |
+| `--quick` | Run only the essential checks |
+| `--debug` | Debug logging (same as -vv) |
+| `--no-update-check` | Do not check for a newer release |
+| `--config` `KEY=VALUE` | Override one configuration value (repeatable) |
+| `--config-file` `FILE` | Read an extra configuration file (repeatable) |
+
+**`sr help`**
+
+| Flag | What it does |
+| --- | --- |
+| `--option` `NAME` | Explain one option, e.g. `sr help --option max-count` |
+| `--all` | Same as `sr --help-all` |
+| `--no-pager` | Never page the output |
+
+</details>
+
+<!-- END OPTIONS -->
+
+Global flags: `-h/--help`, `--help-all`, `-V/--version`, `-v/--verbose` (`-vv`
+= debug), `-q/--quiet`, `--debug`, `--json`, `--porcelain`, `--color
+auto|always|never`, `--no-update-check`, `--config KEY=VALUE`, `--config-file
+FILE`.
+
+---
+
+## Safety model
+
+Threat model: sr runs with your privileges over your files, so the risks are
+**accidental destruction**, **unintended scope** and **supply-chain attacks on
+the update path** — not remote exploitation.
+
+**Accidental destruction**
+
+- literal matching by default: a pattern is never silently a regex
+- binary files are skipped unless `--binary` or an explicit `--encoding` is given
+- undecodable files are skipped and reported — never rewritten with a guessed
+  encoding (BOM, UTF-8, `--encoding`, then `--encoding-error`)
+- the scan phase completes before the first write, so the confirmation prompt
+  states real numbers (`--confirm-threshold`, default 50 files)
+- VCS directories, build output and `.sr/` are pruned by default
+- symlinks are skipped by default, so a link cannot smuggle a file outside the
+  target tree into the edit set
+- atomic writes by default (`--atomic`): a crash can never leave a truncated
+  file; `--no-atomic` preserves the inode instead, for hard links
+- **running as root is refused** unless `--allow-root`
+- **rewriting `/`, `/etc`, `/usr` or `$HOME` directly is refused** unless
+  `--force`
+- every mutating run is journalled and reversible; rollbacks are reversible too
+- rollback refuses drifted files, refuses paths outside the session root, and
+  re-hashes every blob before writing it
+
+**Unintended scope**
+
+- `-v` prints every skipped candidate *with the reason*
+- `--dry-run` and `--diff` make the blast radius visible before committing
+- `--write=dir -o out` produces copies and touches nothing
+
+**Update path (supply chain)**
+
+- HTTPS only, enforced in code (`_require_https` rejects `file:` and custom
+  schemes before `urlopen` sees them)
+- **verification is fail-closed**: a missing checksum asset, an unreachable or
+  empty checksum file, a malformed digest and a digest mismatch all abort the
+  update and install nothing — `scripts/install.sh` enforces the same five rules
+- the download is smoke-tested in a subprocess before it replaces anything
+- the previous file is kept as `<file>.bak`
+- `--no-verify` is the only way past that, and warns loudly
+- the background check is read-only, cached, non-blocking and can be disabled
+
+**Data handling**
+
+- file content never leaves the machine; the only network calls are the release
+  lookup and the release download
+- sessions store original bytes under `<target>/.sr` — **not encrypted**; treat
+  that directory with the same care as the files themselves and keep it out of
+  git
+- no telemetry, no analytics, no crash reporting: a crash prints a traceback
+  locally (with `SR_DEBUG=1`) and suggests opening an issue
+
+See [`SECURITY.md`](SECURITY.md) for reporting a vulnerability.
+
+---
+
+## Performance
+
+Where the time goes, in order of impact: **discovery** (pruning is the whole
+game — excluded directories are never descended into), **reading and decoding**
+(every candidate is read once), **matching** (one compiled pattern reused for
+every file), **writing** (one atomic write plus an fsync per changed file).
+
+On a laptop SSD a literal replacement across ~10 000 text files (≈120 MB) takes
+a few seconds. The scan phase doubles the read cost of a mutating run — that is
+the price of an accurate prompt and of a `--dry-run` with no side effects.
+
+```sh
+sr replace a b --files-from <(git ls-files '*.py')   # skip discovery entirely
+sr replace a b --no-backup                           # no blob writes (git is your net)
+sr replace a b -q --no-progress --no-summary         # script-friendly
+sr replace a b --max-size 1MB --newer-than 7d        # shrink the candidate set
+```
+
+**No parallelism by default, deliberately.** A bulk rewrite is I/O bound, and
+parallel writers make the journal order — and therefore rollback — harder to
+reason about. If you need throughput, shard by directory with `-C` and run the
+shards yourself: each shard gets its own session and can be rolled back
+independently.
+
+---
+
+## Troubleshooting
+
+Start with `sr doctor` (interpreter, installation type and writability, config
+files, session store, filesystem capabilities, locking, disk, network) and
+`sr selftest` (the whole pipeline end to end).
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `no files matched the target selection` | Unquoted glob (the shell expanded it) · hidden or excluded files · `--gitignore` · wrong root. Run with `-v` to see every rejection and its reason. |
+| `skipped: binary content` | NUL byte or >30 % non-text bytes in the first 8 KiB. UTF-16 without a BOM looks binary. Use `--encoding utf-16` (decodes it properly) or `--binary` (forces it). |
+| `cannot decode as utf-8` | It is not UTF-8. Pass `--encoding cp1251` (or the real encoding), or `--encoding-error replace` to force a lossy decode. sr never guesses silently. |
+| Line endings changed | They are preserved per file by default. `--line-endings lf` normalises on purpose. |
+| `file changed after the session` | Correct behaviour: the file was edited after the session, so restoring would lose those edits. Review with `sr diff --session <id>`, then `--force` if you accept the loss. |
+| `another sr process is using <session>` | A held lock. sr breaks locks whose owner process is gone; otherwise delete `.sr/sessions/<id>/.lock`. |
+| Slower than expected | `-v` prints discovery statistics. Check that `node_modules`/`dist` are pruned; consider `--files-from`. |
+| sr crashed | Re-run with `SR_DEBUG=1` for a traceback and open an issue with `sr doctor --json` attached. |
+
+```sh
+sr help troubleshooting      # the full chapter
+```
+
+---
+
+## Architecture
+
+```
+sr-cli, sr.py             launchers (POSIX sh / thin Python)
+sr/
+  cli.py                  preprocessing, dispatch, error handling
+  cli_support.py          argparse actions, schema → parser plumbing
+  registry.py             the subcommand table
+  options.py              THE option schema (single source of truth)
+  config.py               config files, env vars, precedence
+  context.py              per-run context: console, config, prompts, guards
+  console.py              colour, verbosity, text/json/porcelain output
+  pattern.py              the matcher: literal/regex/ERE/PCRE, ranges, counts
+  discovery.py            walking, pruning, globs, .gitignore, filters
+  textio.py               encoding, BOM, line endings, binary sniffing
+  replace.py              the engine: scan → confirm → write → record
+  find.py                 read-only search rendering (grep-like output)
+  diffview.py             unified diffs and their statistics
+  atomic.py               atomic, permission-preserving writes
+  session.py              sessions: manifest, journal, blob store, restore
+  errors.py               exception hierarchy → exit codes
+  exit_codes.py           the frozen exit-code contract
+  util.py, version.py     sizes, durations, hashes, ids, semver
+  help_system.py          the manual: 27 topics, generated option reference
+  commands/               one module per subcommand (+ shared helpers)
+tools/                    build helpers: zipapp, man page
+scripts/                  install.sh, version sync, release notes
+tests/                    579 test functions → 715 tests; hermetic (no network, no $HOME)
+npm/                      the npm package (launcher + bundled zipapp)
+```
+
+Data flow of `sr replace`:
+
+```
+argv → preprocess → argparse → Context (config merge, console)
+     → PatternSpec (validated once)
+     → DiscoveryOptions → discover() → candidate list
+     → SCAN:   read → decode → match → diff            (nothing written)
+     → confirm (accurate numbers)
+     → WRITE:  atomic write → session.record_replace()
+     → close session (manifest) → prune → report → exit code
+```
+
+Invariants worth knowing:
+
+- the scan phase never writes, so `--dry-run` has literally no side effects
+- counting and replacing share one matcher, so the reported number of
+  replacements equals the number of edits made
+- the journal is fsync-ed per file and the manifest only at the end, so an
+  interrupted run is still recoverable
+- blobs are content addressed and re-hashed on read: a corrupt backup is
+  detected, never silently restored
+- a session may never cause a write outside its own root, even if the manifest
+  is edited by hand
+
+---
+
+## Development
+
+```sh
+git clone https://github.com/paulmann/sr-search-replace
+cd sr-search-replace
+python3 -m venv .venv && . .venv/bin/activate
+make install-dev        # editable install + pytest/ruff/mypy
+make test               # the full suite
+make lint               # ruff
+make dist               # build/sr.pyz (the release asset)
+make man completions    # regenerate the derived artefacts
+make check              # lint + types + tests + dist + man + versions + selftest
+```
+
+Conventions (all enforced by review or CI):
+
+- a new option goes into `sr/options.py` **and nowhere else** — the parser,
+  config layer, help text, man page and completions are all derived from it
+- every command module exposes `cmd_<name>(context) -> int`
+- errors are `SrError` subclasses carrying an exit code and a one-line hint
+- **no third-party runtime dependencies, ever**
+- tests must not touch the network, the real `$HOME`, or the cwd
+
+Release checklist: bump `version` in `pyproject.toml` → `make sync-version V=x.y.z`
+→ update `CHANGELOG.md` → `make release-check` → commit, tag `vx.y.z`, push.
+CI publishes to PyPI and npm, builds `sr.pyz`, and attaches `sr.pyz` +
+`sr.pyz.sha256` to the GitHub Release — which is exactly what `sr update` downloads
+and verifies.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+---
+
+## Migrating from sr 6.x
+
+sr 7 is a rewrite in Python with a redesigned command line. The 6.x flags are
+**not** accepted.
+
+| 6.x (bash) | 7.x |
+| --- | --- |
+| `sr "*.py" "a" "b"` | `sr replace "a" "b" -p '*.py'` |
+| `sr -i` / `--ignore-case` | `sr replace -i …` *(unchanged)* |
+| `sr -E` / `--extended-regex` | `sr replace --ere …` |
+| `sr -w` / `--word-boundary` | `sr replace -w …` *(unchanged)* |
+| `sr -m` / `--multiline` | `sr replace -m …` *(unchanged)* |
+| `sr -nr` / `--no-recursive` | `sr replace --no-recursive` |
+| `sr -nb` / `--no-backup` | `sr replace --no-backup` |
+| `sr -nbf` / `--no-backup-folder` | `sr replace --backup-dir <dir>` |
+| `sr -fb` / `--force-backup` | *(backups are on by default)* |
+| `sr -xs` / `--max-size MB` | `sr replace --max-size 10MB` |
+| `sr -xp` / `--exclude-patterns` | `sr replace --exclude GLOB` (repeatable) |
+| `sr -xd` / `--exclude-dirs` | `sr replace --exclude-dir NAME` (repeatable) |
+| `sr -sd` / `--search-dir DIR` | `sr replace -C DIR` |
+| `sr -od` / `--output-dir DIR`<br>`sr -mode copy` | `sr replace --write=dir -o DIR` |
+| `sr --dry-run` | `sr replace --dry-run` *(unchanged)* |
+| `sr --rollback[=DIR]` | `sr rollback [SESSION]` |
+| `sr --rollback-list` | `sr sessions` |
+| `sr --binary` | `sr replace --binary` *(unchanged)* |
+| `sr --binary-method=…` | *(one robust sniffer; no knob)* |
+| `sr --find-opts` / `--sed-opts` / `--grep-opts` | **removed** — those strings were injected into a shell command line. Use the typed equivalents: `--include`, `--max-depth`, `--newer-than`, `--exclude-dir`, … |
+| `sr --delimiter CHAR` | **removed** — no shell quoting is involved any more, so no delimiter can collide |
+| `SR_*` variables | still one per option, named after the new flags |
+
+**Behaviour changes worth knowing**
+
+- Patterns are **literal by default**. 6.x escaped the search string for `sed`,
+  which also meant `-E` was effectively broken; 7.x separates literal and regex
+  cleanly.
+- Replacement counts are **occurrences**, not matching lines.
+- `--dry-run` writes **nothing at all** (6.x created a backup directory).
+- Sessions live in `.sr/` instead of `sr.backup.<timestamp>/` in the project
+  root. 6.x backup directories are left untouched — restore from them with the
+  6.x script from the `v6.1.0` release assets, or copy the files back by hand
+  (the layout is a plain directory mirror).
+- Exit codes are documented and stable: "no match" is `3`, not `1`.
+- 6.x required `bc`, `file`, GNU `sed`/`grep` and bash 4 at runtime and failed
+  with exit `127` when any of them was missing. 7.x needs Python 3.9+ and
+  nothing else.
+
+```sh
+sr help compat        # the same table, plus the reasoning
+```
+
+---
+
+## License
+
+MIT © Mikhail Deynekin — [deynekin.com](https://deynekin.com)
+
+```
+sr help license
+```
