@@ -160,8 +160,9 @@ invocation is `sr replace`), and flags accepted in any position:
 - CI: lint + shellcheck + a 5-version × 2-OS test matrix + artefact build and
   verification + installer checks; Release workflow publishing the GitHub
   Release, PyPI and npm
-- 579 test functions (715 collected tests), hermetic: no network, no real
-  `$HOME`, no cwd assumptions, no optional external tools
+- a hermetic test suite (~590 test functions, ~730 collected tests): no
+  network, no real `$HOME`, no cwd assumptions, no optional external tools.
+  Exact counts: `python3 -m pytest --collect-only -q`
 
 ### Fixed (defects in 6.1.0)
 

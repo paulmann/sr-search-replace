@@ -128,7 +128,7 @@ reports a precise error if it is missing or too old.
 ```sh
 git clone https://github.com/paulmann/sr-search-replace
 cd sr-search-replace
-make test          # 715 tests (579 test functions), no network
+make test          # the full suite (~730 tests), no network
 make install       # zipapp + man page into PREFIX (default /usr/local)
 ```
 
@@ -1017,7 +1017,7 @@ sr/
   commands/               one module per subcommand (+ shared helpers)
 tools/                    build helpers: zipapp, man page
 scripts/                  install.sh, version sync, release notes
-tests/                    579 test functions → 715 tests; hermetic (no network, no $HOME)
+tests/                    ~590 test functions → ~730 tests; hermetic (no network, no $HOME)
 npm/                      the npm package (launcher + bundled zipapp)
 ```
 
