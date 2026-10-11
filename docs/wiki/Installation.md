@@ -1,5 +1,10 @@
 # Installation
 
+> **Historical page (sr 6.x).** The GitHub wiki is a separate repository and is
+> not updated by merging this branch, so this mirror is kept at its original path
+> to avoid a 404. Current documentation: [README.md](../../README.md) and
+> `sr help` (27 topics). The text below is unchanged.
+
 > Professional installation guide for **sr-search-replace** across major platforms.
 
 ## Supported Environments

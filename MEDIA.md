@@ -1,5 +1,9 @@
 # Search & Replace (sr) v6.0.0 - Media & Visual Resources
 
+> **Historical document (sr 6.x).** Superseded by sr 7 — see [README.md](README.md),
+> `sr help examples` and [docs/MIGRATION-6-to-7.md](docs/MIGRATION-6-to-7.md).
+> Kept at this path so existing links keep resolving; the text below is unchanged.
+
 ## 📝 Overview
 
 This document catalogs all visual assets, illustrations, and media resources for the Search and Replace (sr) v6.0.0 project. These materials support understanding and documentation of the utility.

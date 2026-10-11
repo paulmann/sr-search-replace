@@ -1,5 +1,9 @@
 # Release Notes: Search and Replace (sr) v6.0.0
 
+> **Historical document (sr 6.x).** Superseded by sr 7 — see [README.md](README.md),
+> `sr help examples` and [docs/MIGRATION-6-to-7.md](docs/MIGRATION-6-to-7.md).
+> Kept at this path so existing links keep resolving; the text below is unchanged.
+
 **Release Date**: December 7, 2025
 **Version**: 6.0.0
 **Status**: Stable Release
