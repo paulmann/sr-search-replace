@@ -103,7 +103,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install --upgrade pip pytest pytest-cov ruff
+      - run: python -m pip install --upgrade pip pytest pytest-cov ruff pyyaml
       - run: ruff check sr tests tools scripts
       - run: python -m pytest -q
       - run: python -m sr selftest
@@ -127,12 +127,20 @@ jobs:
         run: python tools/build_zipapp.py --output build/sr.pyz
 
       - name: Verify the zipapp
+        # `sha256sum -c` resolves the file name stored *inside* the checksum
+        # against the CWD, and the checksum stores it bare ("<digest>  sr.pyz"),
+        # so the check must run from build/.  Run from the repository root this
+        # exact line failed the v7.0.0 release with "sr.pyz: No such file or
+        # directory".  The released asset pair is correct as it is: users
+        # download sr.pyz and sr.pyz.sha256 into one directory and run
+        # `sha256sum -c sr.pyz.sha256` there.  tools/check_workflows.py
+        # executes this block verbatim as a pre-push gate.
         run: |
           set -euo pipefail
           python tools/build_zipapp.py --output build/sr.pyz --check
           ./build/sr.pyz selftest
           ./build/sr.pyz --version | head -1
-          sha256sum -c build/sr.pyz.sha256
+          (cd build && sha256sum -c sr.pyz.sha256)
 
       - name: Build sdist and wheel
         run: python -m build --sdist --wheel --outdir build/dist

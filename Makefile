@@ -28,7 +28,7 @@ COMPLETIONS := completions/sr.bash completions/sr.zsh completions/sr.fish
 .DEFAULT_GOAL := help
 .PHONY: help install install-dev uninstall test test-quick coverage lint fmt typecheck \
         dist dist-check man man-check docs docs-check completions npm selftest check clean \
-        sync-version release-check doctor run
+        sync-version release-check workflow-check doctor run
 
 # -----------------------------------------------------------------------------
 help: ## Show this help
@@ -131,6 +131,9 @@ else
 	$(PYTHON) scripts/sync_version.py --check
 endif
 
+workflow-check: ## Execute the hermetic CI/release workflow steps verbatim (needs pyyaml)
+	$(PYTHON) tools/check_workflows.py
+
 # -----------------------------------------------------------------------------
 # Installation
 # -----------------------------------------------------------------------------
@@ -153,7 +156,7 @@ uninstall: ## Remove sr from PREFIX
 # Gates
 # -----------------------------------------------------------------------------
 
-check: lint typecheck test dist-check man-check docs-check sync-version selftest ## The full quality gate (what CI runs)
+check: lint typecheck test dist-check man-check docs-check sync-version workflow-check selftest ## The full quality gate (what CI runs)
 	@printf '\n\033[0;32mall checks passed\033[0m — sr %s is ready to release\n' "$(VERSION)"
 
 release-check: check ## Everything in `check`, plus release-specific verification

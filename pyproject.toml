@@ -61,6 +61,7 @@ dev = [
   "pytest-cov>=4.1",
   "ruff>=0.5",
   "mypy>=1.8",
+  "pyyaml>=6",  # tools/check_workflows.py parses .github/workflows/*.yml
 ]
 
 [project.urls]

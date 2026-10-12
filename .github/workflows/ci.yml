@@ -112,7 +112,7 @@ jobs:
           cache: pip
 
       - name: Install test dependencies
-        run: python -m pip install --upgrade pip pytest pytest-cov
+        run: python -m pip install --upgrade pip pytest pytest-cov pyyaml
 
       - name: Run the suite
         run: python -m pytest -q --cov=sr --cov-report=term-missing --cov-report=xml
@@ -148,7 +148,13 @@ jobs:
         run: python tools/build_zipapp.py --output build/sr.pyz
 
       - name: Verify the zipapp end to end
-        run: python tools/build_zipapp.py --output build/sr.pyz --check
+        # The checksum line mirrors release.yml: `sha256sum -c` resolves the
+        # bare name inside the checksum file against the CWD, so it runs from
+        # build/.  v7.0.0's release died on the from-the-root variant.
+        run: |
+          set -euo pipefail
+          python tools/build_zipapp.py --output build/sr.pyz --check
+          (cd build && sha256sum -c sr.pyz.sha256)
 
       - name: Run the smoke test *inside* the zipapp
         run: ./build/sr.pyz selftest
@@ -169,9 +175,12 @@ jobs:
           rm -rf "$workdir"
 
       - name: Regenerate and compare the man page
+        # --check ignores the .TH date line.  A raw `diff -u` against the
+        # committed page only passes when the runner's calendar agrees with the
+        # day the page was generated — a time bomb, not a gate.
         run: |
-          python tools/build_manpage.py --output build/sr.1
-          diff -u docs/man/sr.1 build/sr.1
+          set -euo pipefail
+          python tools/build_manpage.py --output docs/man/sr.1 --check
           echo "man page is up to date"
 
       - name: Regenerate and compare the completions
@@ -221,6 +230,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install pytest (used by the fail-closed updater gate below)
+        run: python -m pip install --upgrade pip pytest
+
       - name: Syntax and shellcheck
         run: |
           bash -n scripts/install.sh
@@ -247,15 +259,23 @@ jobs:
         # while the updater and the installer looked for sr.sha256 — so the
         # lookup always missed and both installed *unverified*. These greps make
         # the three names impossible to drift apart silently.
+        #
+        # v7.0.0 then failed on the *verification* of that asset: the release
+        # workflow ran `sha256sum -c build/sr.pyz.sha256` from the repo root,
+        # while the checksum file names the asset bare.  The last two greps pin
+        # that pairing (bare name written by the build ↔ `cd build` in the
+        # workflow).  Note the exact spelling of ASSET= in install.sh — the
+        # 7.0.0 gate grepped for 'ASSET = "sr.pyz"' and could never pass.
         run: |
           set -euo pipefail
           grep -q 'RELEASE_ASSET = "sr.pyz"' sr/commands/update.py
           grep -q 'CHECKSUM_ASSET = f"{RELEASE_ASSET}.sha256"' sr/commands/update.py
-          grep -q 'ASSET = "sr.pyz"' scripts/install.sh
+          grep -q 'ASSET="sr.pyz"' scripts/install.sh
           grep -q 'CHECKSUM="${ASSET}.sha256"' scripts/install.sh
           grep -q 'suffix + ".sha256"' tools/build_zipapp.py
           grep -q 'sr.pyz.sha256' .github/workflows/release.yml
-          grep -q 'sr.pyz.sha256' build/sr.pyz.sha256 || true
+          grep -qF '{digest}  {target.name}' tools/build_zipapp.py
+          grep -qF '(cd build && sha256sum -c sr.pyz.sha256)' .github/workflows/release.yml
           ! grep -rn '"sr\.sha256"' sr/ scripts/ tools/
           echo "checksum asset name agrees: sr.pyz -> sr.pyz.sha256"
 
