@@ -184,16 +184,16 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: sr ${{ needs.verify.outputs.version }}
-          body_path: assets/build/RELEASE_NOTES.md
+          body_path: assets/RELEASE_NOTES.md
           draft: false
           prerelease: ${{ contains(needs.verify.outputs.version, '-') }}
           fail_on_unmatched_files: true
           generate_release_notes: false
           files: |
-            assets/build/sr.pyz
-            assets/build/sr.pyz.sha256
-            assets/build/dist/*.whl
-            assets/build/dist/*.tar.gz
+            assets/sr.pyz
+            assets/sr.pyz.sha256
+            assets/dist/*.whl
+            assets/dist/*.tar.gz
 
   pypi:
     name: Publish to PyPI
@@ -225,8 +225,8 @@ jobs:
             exit 0
           fi
           python -m pip install --upgrade twine
-          twine check assets/build/dist/*
-          twine upload --non-interactive assets/build/dist/*
+          twine check assets/dist/*
+          twine upload --non-interactive assets/dist/*
 
   npm:
     name: Publish to npm
