@@ -3,7 +3,7 @@
 #
 # What it proves, in order:
 #   1. the code is lint-clean and type-checks
-#   2. the whole test suite passes on every supported Python (3.9 … 3.13) and
+#   2. the whole test suite passes on every supported Python (3.10 … 3.14) and
 #      on both Linux and macOS (the two supported platforms)
 #   3. the shipped shell scripts are shellcheck-clean
 #   4. the release artefacts build: zipapp, man page, completions
@@ -97,10 +97,8 @@ jobs:
         # would turn known platform gaps into red builds without making sr work
         # there.  `sr doctor` reports the capability gaps on any platform.
         os: [ubuntu-latest, macos-latest]
-        python: ["3.9", "3.11", "3.13", "3.14"]
+        python: ["3.10", "3.11", "3.13", "3.14"]
         include:
-          - os: ubuntu-latest
-            python: "3.10"
           - os: ubuntu-latest
             python: "3.12"
     steps:

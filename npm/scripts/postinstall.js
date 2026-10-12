@@ -37,5 +37,5 @@ if (result.status === 0) {
 
 process.stdout.write('[sr] installed, but the smoke test failed:\n');
 process.stdout.write(String(result.stderr || result.stdout || '(no output)').split('\n').slice(0, 6).map((l) => `     ${l}`).join('\n') + '\n');
-process.stdout.write('[sr] sr needs Python 3.9+; set SR_PYTHON=/path/to/python3 if it is not on PATH.\n');
+process.stdout.write('[sr] sr needs Python 3.10+; set SR_PYTHON=/path/to/python3 if it is not on PATH.\n');
 process.exit(0);

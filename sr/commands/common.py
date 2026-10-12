@@ -302,7 +302,7 @@ def _render_hunk(hunk: Hunk, console: Console) -> Iterable[str]:
     """Render a hunk: dim context, then red/green for every changed line."""
     for line in hunk.context_before:
         yield console.paint(f"      {line}", "dim")
-    for offset, (before, after) in enumerate(zip(hunk.before, hunk.after)):
+    for offset, (before, after) in enumerate(zip(hunk.before, hunk.after, strict=False)):
         number = hunk.first_line + offset
         if before == after:
             yield console.paint(f"{number:>5}   {before}", "dim")

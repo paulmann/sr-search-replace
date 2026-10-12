@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Callable
 
 from . import discovery, textio
 from .atomic import atomic_write_bytes
@@ -514,7 +513,7 @@ def _scan_file(
         hunks = build_hunks(original_text, matches, options.diff_context)
         decisions = [bool(item) for item in options.hunk_filter(path, hunks)]
         keep = _expand_decisions(hunks, decisions, len(matches))
-        matches = [match for match, flag in zip(matches, keep) if flag]
+        matches = [match for match, flag in zip(matches, keep, strict=False) if flag]
         if not matches:
             outcome.reason = "all hunks rejected"
             return outcome
@@ -650,7 +649,7 @@ def _render_after(lines: Sequence[str], matches: Sequence, hunk: Hunk) -> list[s
 
 def _expand_decisions(hunks: Sequence[Hunk], decisions: Sequence[bool], total: int) -> list[bool]:
     keep = [False] * total
-    for hunk, decision in zip(hunks, decisions):
+    for hunk, decision in zip(hunks, decisions, strict=False):
         for index in hunk.match_indexes:
             if index < total:
                 keep[index] = decision

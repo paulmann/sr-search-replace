@@ -22,8 +22,11 @@ put together, what the conventions are, and how to get a change merged quickly.
    it can fail to install, it is worse than no tool at all. Dev extras (pytest,
    ruff, mypy) are fine and optional; the package itself is standard library
    only, and `sr doctor` asserts it.
-2. **Python 3.9+ compatible.** CI runs 3.9 → 3.13 on Linux and macOS. Avoid
-   `match`, PEP 604 unions at runtime, and anything newer without a guard.
+2. **Python 3.10+ compatible.** CI runs 3.10 → 3.14 on Linux and macOS. Avoid
+   anything newer than the floor without a guard. (The floor is 3.10 because
+   the package uses `dataclass(slots=True)` throughout; 7.0.0 shipped claiming
+   3.9 and both 3.9 CI legs died on import — `tests/test_workflows.py` now
+   pins the metadata, the matrix and every launcher to the same floor.)
 3. **The option schema is the single source of truth.** A new flag is declared
    once, in `sr/options.py`; the parser, config layer, help text, man page and
    shell completions are all derived from it.

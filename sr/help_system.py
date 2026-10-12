@@ -18,9 +18,10 @@ import os
 import subprocess
 import sys
 import textwrap
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .cli import exit_code_reference
 from .console import Console, Verbosity, make_console
@@ -701,7 +702,7 @@ def _t_install() -> str:
 ------------
 Pick one; every method installs the same `sr` command.
 
-A) Standalone single file (no package manager, no dependencies beyond Python 3.9+)
+A) Standalone single file (no package manager, no dependencies beyond Python 3.10+)
 
      curl -fsSL https://raw.githubusercontent.com/paulmann/sr-search-replace/main/scripts/install.sh | bash
      # or, explicitly:
@@ -746,7 +747,7 @@ Updating:
      {PROG} update             # standalone installs: download, verify, replace
                               # pip/pipx/npm: prints the exact upgrade command
 
-Requirements: Python 3.9 or newer.  No third-party packages.  Linux and macOS;
+Requirements: Python 3.10 or newer.  No third-party packages.  Linux and macOS;
 on Windows use WSL2 (the filesystem code assumes POSIX rename semantics).
 """
 
@@ -1727,7 +1728,7 @@ def _t_compat() -> str:
     return """Compatibility
 -------------
 Python
-  Requires 3.9+.  Developed and CI-tested on 3.9, 3.11, 3.12 and 3.13.
+  Requires 3.10+.  Developed and CI-tested on 3.10, 3.11, 3.12, 3.13 and 3.14.
   No third-party runtime dependencies.
 
 Operating systems

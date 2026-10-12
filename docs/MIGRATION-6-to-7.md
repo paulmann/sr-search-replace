@@ -33,7 +33,7 @@ sr selftest       # end-to-end smoke test
 ```
 
 Runtime requirements changed: 6.x needed bash 4+, GNU `sed`, `grep`, `find` and
-(undeclared but mandatory) `bc` and `file`. sr 7 needs **Python 3.9+ and nothing
+(undeclared but mandatory) `bc` and `file`. sr 7 needs **Python 3.10+ and nothing
 else**.
 
 ---

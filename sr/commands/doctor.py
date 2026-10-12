@@ -14,10 +14,10 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .. import config as config_module
 from ..atomic import atomic_write_bytes
@@ -29,7 +29,7 @@ from ..util import format_size
 from ..version import __version__
 from .update import DEFAULT_REPO, InstallType, detect_installation, latest_release
 
-MIN_PYTHON = (3, 9)
+MIN_PYTHON = (3, 10)
 
 
 class Status:

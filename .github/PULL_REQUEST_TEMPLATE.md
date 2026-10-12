@@ -30,7 +30,7 @@ please open an issue first — those are contracts (see CONTRIBUTING.md).
       `sr help` topic)
 - [ ] `CHANGELOG.md` has an entry under *Unreleased* or the target version
 - [ ] No new third-party runtime dependency (there must be none)
-- [ ] Python 3.9 compatible
+- [ ] Python 3.10 compatible
 
 ## How to verify
 

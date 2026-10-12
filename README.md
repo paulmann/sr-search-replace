@@ -80,9 +80,9 @@ dependencies at all.
 
 ## Install
 
-`sr` is a single-file Python application. **Python 3.9 or newer is the only
+`sr` is a single-file Python application. **Python 3.10 or newer is the only
 requirement** — no packages to install, no compilation, no service. Tested on
-3.9 through 3.14; see [Platforms](#install) for the OS story.
+3.10 through 3.14; see [Platforms](#install) for the OS story.
 
 ### Standalone (recommended)
 
@@ -1123,7 +1123,7 @@ sr 7 is a rewrite in Python with a redesigned command line. The 6.x flags are
   (the layout is a plain directory mirror).
 - Exit codes are documented and stable: "no match" is `3`, not `1`.
 - 6.x required `bc`, `file`, GNU `sed`/`grep` and bash 4 at runtime and failed
-  with exit `127` when any of them was missing. 7.x needs Python 3.9+ and
+  with exit `127` when any of them was missing. 7.x needs Python 3.10+ and
   nothing else.
 
 ```sh

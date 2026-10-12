@@ -85,9 +85,9 @@ need() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 need python3
 
 PYTHON_VERSION=$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')
-python3 - <<'PY' || die "Python 3.9 or newer is required (found $PYTHON_VERSION)"
+python3 - <<'PY' || die "Python 3.10 or newer is required (found $PYTHON_VERSION)"
 import sys
-sys.exit(0 if sys.version_info >= (3, 9) else 1)
+sys.exit(0 if sys.version_info >= (3, 10) else 1)
 PY
 
 DOWNLOADER=""

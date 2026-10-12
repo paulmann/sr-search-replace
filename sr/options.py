@@ -16,8 +16,9 @@ value in a command — there is no fourth place that can drift out of sync.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from .pattern import PatternKind
 

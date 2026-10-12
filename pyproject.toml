@@ -15,7 +15,7 @@ name = "sr-search-replace"
 version = "7.0.0"
 description = "Safe, auditable search & replace for source trees — literal by default, session-based rollback, JSON output."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
   { name = "Mikhail Deynekin", email = "mid1977@gmail.com" },
@@ -42,7 +42,6 @@ classifiers = [
   # Windows users are pointed at WSL2 (the npm launcher says so explicitly).
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -109,7 +108,7 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 110
-target-version = "py39"
+target-version = "py310"
 extend-exclude = ["build", "dist", "npm"]
 
 [tool.ruff.lint]
