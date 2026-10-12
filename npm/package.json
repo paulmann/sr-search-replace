@@ -1,6 +1,6 @@
 {
   "name": "sr-search-replace",
-  "version": "7.0.0",
+  "version": "7.0.1",
   "description": "Safe, auditable search & replace for source trees — literal by default, session-based rollback, JSON output. Zero runtime dependencies.",
   "keywords": [
     "search",

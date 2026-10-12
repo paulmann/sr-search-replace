@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sr-search-replace"
-version = "7.0.0"
+version = "7.0.1"
 description = "Safe, auditable search & replace for source trees — literal by default, session-based rollback, JSON output."
 readme = "README.md"
 requires-python = ">=3.10"

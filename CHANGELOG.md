@@ -10,6 +10,56 @@ entry here is what users see on the GitHub Release page.
 
 ---
 
+## [7.0.1] - 2026-10-12
+
+Release-engineering patch: fixes the pipeline defects that stopped `v7.0.0`
+from producing a GitHub Release, and aligns the declared Python floor with
+what the code has required since 7.0.0.  No behavioural changes to `sr`
+itself — same commands, same exit codes, same session format.
+
+### Fixed
+
+- **The release workflow could never publish.**  It verified the built asset
+  with `sha256sum -c build/sr.pyz.sha256` from the repository root, but the
+  checksum file names the asset bare (`<digest>  sr.pyz`) and `sha256sum -c`
+  resolves that name against the working directory — so the v7.0.0 release
+  died with `sr.pyz: No such file or directory`.  The step now runs the check
+  from `build/`.  The released asset pair itself was always correct: download
+  `sr.pyz` and `sr.pyz.sha256` into one directory and run
+  `sha256sum -c sr.pyz.sha256` there.
+- **A CI gate line that could never pass.**  The checksum-name gate grepped
+  the installer for `ASSET = "sr.pyz"` (with spaces) while
+  `scripts/install.sh` has always said `ASSET="sr.pyz"`.  The gate now greps
+  the real spelling and additionally pins the bare-name ↔ `cd build` pairing
+  in the release workflow and the build tool.
+- **The CI man-page comparison was a calendar time bomb.**  A raw `diff -u`
+  included the generated `.TH` date line, so the gate only passed while the
+  runner's date matched the day the page was committed.  CI now uses
+  `build_manpage.py --check`, which ignores the date.
+- **The installer job relied on the runner image carrying pytest** for its
+  fail-closed updater gate; it now installs pytest explicitly.
+
+### Changed
+
+- **Minimum Python is 3.10** (declared: 3.9 — and broken there).  7.0.0 used
+  `dataclass(slots=True)`, a 3.10 feature, in 36 places, so both 3.9 CI legs
+  died during collection and a real 3.9 install would have failed on import.
+  `requires-python`, the classifiers, the CI matrix (3.10/3.11/3.13/3.14 on
+  Linux + macOS, 3.12 on Linux), `install.sh`, `sr-cli`, the npm launcher and
+  `sr doctor` now declare the same floor, and a structural test keeps them
+  from drifting apart again.  Python 3.9 environments keep the 6.x Bash
+  implementation from the `v6.1.0` release assets.
+
+### Added
+
+- **`make workflow-check` (`tools/check_workflows.py`)** — the gate that was
+  missing.  It parses `.github/workflows/*.yml`, syntax-checks every `run:`
+  block and executes the hermetic workflow steps *verbatim*, with the
+  workflows' own environment, so a workflow line that disagrees with the
+  repository fails locally before the push instead of on a runner after the
+  tag.  `tests/test_workflows.py` re-runs both steps that died on the
+  v7.0.0 runners as regression tests.
+
 ## [7.0.0] - 2026-10-09
 
 A complete rewrite: the 4 186-line Bash script is replaced by a standard-library

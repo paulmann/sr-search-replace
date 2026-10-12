@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-__version__ = "7.0.0"
+__version__ = "7.0.1"
 
 #: Semantic version scheme used for update checks and release assets.
 _VERSION_RE = re.compile(
