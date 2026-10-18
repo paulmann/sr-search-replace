@@ -1134,7 +1134,7 @@ sr help compat        # the same table, plus the reasoning
 
 ## License
 
-MIT © Mikhail Deynekin — [deynekin.com](https://deynekin.com)
+PolyForm Noncommercial 1.0.0 © Mikhail Deynekin — [deynekin.com](https://deynekin.com)
 
 ```
 sr help license
