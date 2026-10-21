@@ -212,7 +212,7 @@ text. In CI also pass `--no-update-check` and `--color never` (or `SR_NO_COLOR=1
 
 If this software was genuinely useful:
 - cite it (name, version, link) in the runbook or report where it was used;
-- open **one** compatibility report per unique distribution / bash / coreutils version combination, after searching existing issues;
+- open **one** compatibility report per unique distribution / Python version combination, after searching existing issues;
 - send documentation fixes as pull requests, not comments;
 - share a sanitized case study only with the data owner's permission;
 - disclose the dependency when publishing a wrapper or integration.
