@@ -107,6 +107,22 @@ def test_installer_checksum_gate_passes_verbatim(checkout: Path):
     assert "checksum asset name agrees" in completed.stdout
 
 
+def test_installer_missing_asset_gate_passes_verbatim(checkout: Path):
+    """Regression: the step's subject is "fail cleanly when the release has no
+    asset", but it reached the real api.github.com and asserted on whatever came
+    back.  When the anonymous rate limit answered 403 the installer reported
+    "release v6.1.0 not found" and the step went red without ever reaching the
+    asset lookup.  It now reads the release JSON from a local fixture, so the
+    step both runs offline and asserts the failure it is named after."""
+    completed = run_tool(
+        "--only",
+        "ci.yml/installer/Fails cleanly when the release has no asset",
+        root=checkout,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "fails closed and installs nothing" in completed.stdout
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(
     shutil.which("sha256sum") is None,

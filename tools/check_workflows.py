@@ -87,6 +87,7 @@ VERBATIM: dict[str, dict[str, list[str]]] = {
         "installer": [
             "Syntax and shellcheck",
             "--help works without network",
+            "Fails cleanly when the release has no asset",
             "Checksum asset name agrees across build, updater and installer",
             "Updater refuses an unverifiable download",
         ],
@@ -244,15 +245,23 @@ def resolve_curated(workflows: dict[str, dict], only: list[str] | None) -> list[
 
 
 def _make_python_shim(shim_dir: Path) -> None:
-    """The runners have ``python``; a local venv often only has ``python3``.
+    """Provide both interpreter names the workflows use, pointing at this Python.
+
+    GitHub runners expose ``python`` and ``python3``; a local venv often has only
+    one of them, and git-bash on Windows has neither ``python3`` nor its
+    ``python`` unified with the launcher that CI installs.  Curated steps call
+    ``python3`` (the installer does too), so both names must resolve to the
+    interpreter running this tool or a step would fail for a reason that has
+    nothing to do with the repository.
 
     A wrapper script, not a symlink: Python derives its module search prefix
     from the executable path, and a symlink in a temp directory loses
     site-packages (``python: No module named pytest``) on at least some builds.
     """
-    shim = shim_dir / "python"
-    shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
-    shim.chmod(0o755)
+    for name in ("python", "python3"):
+        shim = shim_dir / name
+        shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+        shim.chmod(0o755)
 
 
 def execute(root: Path, curated: list[CuratedStep]) -> int:

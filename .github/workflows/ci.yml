@@ -240,17 +240,68 @@ jobs:
         run: bash scripts/install.sh --help
 
       - name: Fails cleanly when the release has no asset
-        # v6.1.0 is a real release that ships sr.sh and no sr.pyz, so it is a
-        # genuine "asset missing" case that needs no fixtures.
+        # A release whose metadata lists assets but none named sr.pyz must fail
+        # closed and install nothing.
+        #
+        # The release JSON is served from a local fixture, not queried from
+        # api.github.com: the old version of this step read the real v6.1.0
+        # release, and the anonymous hourly limit answered 403, so the
+        # installer died with "release v6.1.0 not found" — a network failure
+        # printed in words that look like a missing release.  The step then
+        # grepped for 'asset' and proved nothing about the asset gate.  A
+        # fixture keeps the assertion honest and the run deterministic; nothing
+        # below touches the network.
         run: |
+          set -euo pipefail
+          workdir="$(mktemp -d)"
+          srv=""
+          trap 'kill "$srv" 2>/dev/null || true; rm -rf "$workdir"' EXIT
+
+          mkdir -p "$workdir/api/repos/paulmann/sr-search-replace/releases/tags"
+          printf '%s\n' \
+            '{"tag_name": "v6.1.0", "assets": [{"name": "sr.sh", "browser_download_url": "https://example.invalid/sr.sh"}]}' \
+            > "$workdir/api/repos/paulmann/sr-search-replace/releases/tags/v6.1.0"
+
+          # Ephemeral port, so parallel jobs never collide; the chosen port is
+          # the server's first stdout line.
+          python3 - "$workdir/api" >"$workdir/port" 2>"$workdir/server.log" <<'PY' &
+          import functools, http.server, sys
+          handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[1])
+          server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+          print(server.server_address[1], flush=True)
+          server.serve_forever()
+          PY
+          srv=$!
+          port=""
+          for _ in $(seq 100); do
+            port="$(cat "$workdir/port" 2>/dev/null || true)"
+            if [ -n "$port" ] && curl -fsS -o /dev/null "http://127.0.0.1:$port/"; then break; fi
+            sleep 0.1
+          done
+          test -n "$port"
+
+          mkdir -p "$workdir/bin"
           set +e
-          out=$(bash scripts/install.sh --prefix /tmp/srbin --version 6.1.0 2>&1)
+          out=$(SR_GITHUB_API="http://127.0.0.1:$port" \
+                bash scripts/install.sh --prefix "$workdir/bin" --version 6.1.0 2>&1)
           code=$?
           set -e
           echo "$out"
+
+          # Fail closed, and say why the asset is missing — not "not found",
+          # which is what a broken API lookup prints.
           test "$code" -ne 0
           echo "$out" | grep -qi 'asset'
-          test ! -e /tmp/srbin/sr
+          echo "$out" | grep -q 'sr.pyz'
+          echo "$out" | grep -q 'v6.1.0'
+          ! echo "$out" | grep -qi 'not found'
+
+          # It asked the fixture for the exact endpoint ...
+          grep -q 'GET /repos/paulmann/sr-search-replace/releases/tags/v6.1.0' "$workdir/server.log"
+          # ... and installed nothing: the prefix is still empty.
+          test ! -e "$workdir/bin/sr"
+          test -z "$(ls -A "$workdir/bin")"
+          echo "release with no sr.pyz asset fails closed and installs nothing"
 
       - name: Checksum asset name agrees across build, updater and installer
         # The 7.0.0 pre-release audit found the build publishing sr.pyz.sha256

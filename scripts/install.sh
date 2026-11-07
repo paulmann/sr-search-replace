@@ -53,8 +53,8 @@ Usage: install.sh [options]
   --dry-run         print what would happen
   -h, --help        this text
 
-Environment: PREFIX, SR_UPDATE_REPO, SR_UPDATE_CHANNEL, SR_GITHUB_TOKEN,
-               SR_INSTALL_DRY_RUN, SR_BIN_NAME
+Environment: PREFIX, SR_UPDATE_REPO, SR_UPDATE_CHANNEL, SR_GITHUB_API,
+               SR_GITHUB_TOKEN, SR_INSTALL_DRY_RUN, SR_BIN_NAME
 EOF
 }
 
@@ -124,7 +124,14 @@ fetch_out() { # fetch_out <url>  → stdout
 }
 
 # --- 1. resolve the release --------------------------------------------------
-API="https://api.github.com/repos/$REPO"
+# The API base is overridable so GitHub Enterprise (`https://ghe.example/api/v3`)
+# and hermetic tests (a local server) reach the same code path as production
+# instead of mocking curl. The anonymous api.github.com allows 60 requests an
+# hour per address, and a rate-limited lookup was indistinguishable from "this
+# release has no asset": a test that hit the limit silently stopped testing the
+# asset gate it was written for.
+API_BASE="${SR_GITHUB_API:-https://api.github.com}"
+API="${API_BASE%/}/repos/$REPO"
 if [ -n "$VERSION" ]; then
   TAG="v${VERSION#v}"
   log "resolving release $TAG in $REPO"
